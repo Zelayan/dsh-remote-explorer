@@ -186,25 +186,27 @@ The local panel deliberately offers **no** plugin management: once a connection 
 
 ## Architecture
 
+```mermaid
+flowchart TD
+    n5["Real LLM API<br/>local direct egress only"]
+    subgraph g_local["Local Machine (Windows / Linux / macOS)"]
+        n0["Browser<br/>127.0.0.1:local-port"]
+        n1["dsh-remote-explorer<br/>CLI long-running / local dsh plugin host"]
+        n2["Remote provisioning<br/>Node · dsh · pnpm · offline suite"]
+        n3["LLM credential proxy<br/>DEEPSEEK_API_KEY stays local"]
+    end
+    subgraph g_remote["Remote Host (Linux / macOS)"]
+        n4["Remote dsh<br/>webserver 127.0.0.1 · session · terminal"]
+    end
+    n0 -->|"HTTP / WS + session token"| n1
+    n1 -->|"open-pipeline trigger"| n2
+    n1 -->|"SSH forward tunnel"| n4
+    n2 -->|"SSH/SFTP runtime install"| n4
+    n4 -->|"reverse tunnel · proxy token"| n3
+    n3 -->|"real-key calls"| n5
 ```
-Local (Windows/Linux/macOS)                      Remote (Linux/macOS)
-┌────────────────────────────────┐              ┌──────────────────────────────┐
-│ Browser                        │              │ dsh (full npm install)        │
-│ 127.0.0.1:<local-port>         │              │ webserver 127.0.0.1:<port>    │
-└───────────────┬────────────────┘              │                              │
-                │ HTTP / WS + session token     │  ├ session / agent           │
-┌───────────────▼────────────────┐  forward     │  ├ fs / subprocess           │
-│ dsh-remote-explorer CLI (long-running)  │══════════════▶│  ├ terminal / lsp            │
-│ ├ transport  ssh2/WSL transport │              │  └ sandbox                    │
-│ ├ provision  Node/dsh/pnpm setu │              │                              │
-│ ├ tunnel     fwd+rev listener   │  reverse     │                              │
-│ ├ session    heartbeat & recon │◀═════════════│  baseURL → 127.0.0.1:<rev>   │
-│ └ credential LLM proxy         │              │                              │
-│   ▲ DEEPSEEK_API_KEY only here │              └──────────────────────────────┘
-└───┼────────────────────────────┘
-    │
-Real LLM API (local direct egress)
-```
+
+Editable source: [docs/architecture/architecture.drawio](docs/architecture/architecture.drawio) (open in draw.io; CN/EN pages share the same layout). The diagram above is converted from that source with drawio2mermaid — re-convert and update this block after editing the source.
 
 Dependencies are strictly one-directional, top to bottom; lower layers must not import upper layers:
 

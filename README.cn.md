@@ -185,25 +185,27 @@ dsh 自身会把代理变量透传给它拉起的 `git`/`pnpm` 子进程，装�
 
 ## 架构
 
+```mermaid
+flowchart TD
+    n5["真实 LLM API<br/>仅本机直连出网"]
+    subgraph g_local["本机 Local（Windows / Linux / macOS）"]
+        n0["浏览器<br/>127.0.0.1:本地端口"]
+        n1["dsh-remote-explorer<br/>CLI 常驻 / 本机 dsh 插件宿主"]
+        n2["远端引导 provision/<br/>Node · dsh · pnpm · 离线四件套"]
+        n3["LLM 凭据代理<br/>DEEPSEEK_API_KEY 只存本机"]
+    end
+    subgraph g_remote["远端 Remote（Linux / macOS）"]
+        n4["远端 dsh<br/>webserver 127.0.0.1 · session · 终端"]
+    end
+    n0 -->|"HTTP / WS + 会话令牌"| n1
+    n1 -->|"打开流水线触发"| n2
+    n1 -->|"SSH 正向转发"| n4
+    n2 -->|"SSH/SFTP 安装运行时"| n4
+    n4 -->|"反向隧道 · 代理令牌"| n3
+    n3 -->|"真实 key 调用"| n5
 ```
-本机 (Windows/Linux/macOS)                      远端 (Linux/macOS)
-┌────────────────────────────────┐              ┌──────────────────────────────┐
-│ 浏览器                          │              │ dsh（完整 npm 安装）          │
-│ 127.0.0.1:<本地端口>            │              │ webserver 127.0.0.1:<端口>    │
-└───────────────┬────────────────┘              │                              │
-                │ HTTP / WS + 会话令牌           │  ├ session / agent           │
-┌───────────────▼────────────────┐  正向转发     │  ├ fs / subprocess           │
-│ dsh-remote-explorer CLI（常驻）          │══════════════▶│  ├ terminal / lsp            │
-│ ├ transport  ssh2/WSL 双传输    │              │  └ sandbox                   │
-│ ├ provision  装 Node/dsh/pnpm   │              │                              │
-│ ├ tunnel     正反向转发+反向监听 │  反向转发     │                              │
-│ ├ session    心跳与重连          │◀═════════════│  baseURL → 127.0.0.1:<反向>  │
-│ └ credential LLM 代理            │              │                              │
-│   ▲ DEEPSEEK_API_KEY 只在这里    │              └──────────────────────────────┘
-└───┼────────────────────────────┘
-    │
-真实 LLM API（本机直连出网）
-```
+
+可编辑图源：[docs/architecture/architecture.drawio](docs/architecture/architecture.drawio)（draw.io 打开，中文/英文两页同构）；上图由 drawio2mermaid 从图源转换，改动图源后需同步更新此处。
 
 依赖方向严格单向向下，下层不得 import 上层：
 
