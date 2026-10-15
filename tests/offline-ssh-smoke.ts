@@ -1,6 +1,7 @@
 /**
  * @file 严格离线 doctor 的真实 SSH 冒烟
  * @description 在回环地址启动 ssh2 测试服务器，执行真实远端 shell 探针；HOME 隔离到临时目录，绝不连接生产主机。
+ *              探针在回环服务器内执行 /bin/sh 且 HOME 须为 POSIX 路径，win32 上直接跳过。
  */
 
 import ssh2 from 'ssh2';
@@ -17,6 +18,10 @@ import { createRemotePaths } from '../src/provision/remote-paths.ts';
 
 /** 在隔离 HOME 下执行 doctor，验证 SSH 探测并跳过所有网络测速。 */
 async function main(): Promise<void> {
+  if (process.platform === 'win32') {
+    process.stdout.write('跳过：本冒烟需要真实 POSIX shell（/bin/sh）与 POSIX HOME，请在 Linux/macOS 运行。\n');
+    return;
+  }
   const home = await mkdtemp(join(tmpdir(), 'remote-ssh-offline-'));
   const paths = createRemotePaths(home);
   // 使用 ssh2 支持的传统 RSA PEM 作为回环测试主机密钥。

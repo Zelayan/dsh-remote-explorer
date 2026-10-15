@@ -1,6 +1,8 @@
 /**
  * @file 离线包导入导出集成回归
  * @description 在隔离 HOME 执行真实 POSIX shell 与 tar，以最小运行时替身验证迁移流程，不下载外网资源。
+ *              依赖 /bin/sh、flock 与 POSIX 路径（createRemotePaths 拒绝 Windows 盘符路径），
+ *              在 win32 上整体跳过；Windows 覆盖由 tests/offline-plugin-artifact.ts 等纯本地用例承担。
  */
 
 import { test } from 'node:test';
@@ -57,7 +59,9 @@ function transport(home: string, tools: string): RemoteTransport {
   } as unknown as RemoteTransport;
 }
 
-test('纯运行包导出→全新主机导入，凭据不迁移且拒绝覆盖', async () => {
+test('纯运行包导出→全新主机导入，凭据不迁移且拒绝覆盖', {
+  skip: process.platform === 'win32' ? '需要真实 POSIX shell 与 flock（请在 Linux/macOS 运行）' : false,
+}, async () => {
   const root = await mkdtemp(join(tmpdir(), 'offline-transfer-'));
   try {
     const tools = join(root, 'tools'); await mkdir(tools);

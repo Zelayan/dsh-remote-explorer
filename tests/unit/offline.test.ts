@@ -6,6 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile, rm, symlink, lstat } from 'node:fs/promises';
+import { rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as tar from 'tar';
@@ -17,6 +18,22 @@ import { registerPanelRoutes } from '../../src/plugin/routes.ts';
 import { probeAndReadCredentials } from '../../src/session/open-pipeline/probe.ts';
 import { DEFAULT_NODE_VERSION } from '../../src/provision/node-installer.ts';
 import type { RemoteTransport } from '../../src/transport/types.ts';
+
+/**
+ * 链接攻击用例依赖创建符号链接；Windows 未开启开发者模式/特权时
+ * symlink 报 EPERM，探测能力后跳过而不是让标准套件在该平台常红。
+ */
+const SYMLINK_SUPPORTED = ((): boolean => {
+  const probe = join(tmpdir(), `dsh-re-symlink-probe-${process.pid}`);
+  try {
+    symlinkSync('target', probe);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(probe, { force: true });
+  }
+})();
 
 test('插件离线配置使 Node/DSH 版本路由零 fetch', async () => {
   const supervisor = new SessionSupervisor({ offline: true, cwd: '', localPort: 0, nodeVersion: '', dshVersion: '', forceRestart: false, refreshMirrors: false });
@@ -77,7 +94,7 @@ test('归档校验识别缺文件与内容篡改', async () => {
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test('完整归档拒绝链式链接与缺失目标，不因扫描异常挂起', async () => {
+test('完整归档拒绝链式链接与缺失目标，不因扫描异常挂起', { skip: SYMLINK_SUPPORTED ? false : '当前环境无法创建符号链接' }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'offline-links-'));
   try {
     const source = join(root, 'source'); const bundle = join(root, 'bundle');
@@ -138,16 +155,32 @@ test('插件纯本地安装保留现有配置、使用稳定 file 源并拒绝�
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test('插件安装拒绝摘要篡改及 node_modules 链接', async () => {
+test('插件安装拒绝摘要篡改', async () => {
   const root = await mkdtemp(join(tmpdir(), 'remote-plugin-'));
   try {
     const { bundle, profile } = await pluginFixture(root);
     await writeFile(join(bundle, 'package', 'lib', 'index.js'), 'bad');
     await assert.rejects(installOfflinePlugin(bundle, profile), /SHA-256/);
-    // 重新计算可信清单后仍不能写穿目标链接。
-    const m = JSON.parse(await readFile(join(bundle, 'manifest.json'), 'utf8'));
-    m.files = await hashPluginFiles(join(bundle, 'package'));
-    await writeFile(join(bundle, 'manifest.json'), JSON.stringify(m));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('插件安装遇到残留锁给出处置指引且不清除他方锁', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'remote-plugin-'));
+  try {
+    const { bundle, profile } = await pluginFixture(root);
+    const staleLock = join(profile, '.remote-offline-install.lock');
+    await mkdir(staleLock);
+    await assert.rejects(installOfflinePlugin(bundle, profile), /离线安装锁/);
+    // 失败路径不得删除它方持有的锁目录。
+    assert.ok((await lstat(staleLock)).isDirectory());
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('插件安装拒绝写穿 node_modules 链接', { skip: SYMLINK_SUPPORTED ? false : '当前环境无法创建符号链接' }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'remote-plugin-'));
+  try {
+    const { bundle, profile } = await pluginFixture(root);
+    // 清单与包内容一致（可信），但目标是链接时仍不能写穿。
     const outside = join(root, 'outside'); await mkdir(outside);
     await symlink(outside, join(profile, 'node_modules'), 'dir');
     await assert.rejects(installOfflinePlugin(bundle, profile), /普通目录/);
