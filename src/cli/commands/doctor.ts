@@ -19,6 +19,7 @@ import {
   probeRemote,
   type ProbeResult,
 } from '../../provision/probe.js';
+import { isOfflineMode } from '../../provision/offline-runtime.js';
 import { selectMirror, type MirrorProbeResult } from '../../provision/mirror-selector.js';
 import { createRemotePaths, type RemotePaths } from '../../provision/remote-paths.js';
 import type { RemoteContext } from '../../provision/remote-context.js';
@@ -135,7 +136,8 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
     await checkNodeStabilityChecks(transport, probe, progress, findings);
 
     // 镜像测速
-    await checkMirror(ctx, options, progress, findings);
+    if (isOfflineMode()) findings.push({ item: '镜像测速', verdict: 'ok', detail: '严格离线模式：跳过所有网络测速' });
+    else await checkMirror(ctx, options, progress, findings);
 
     // 通道配额（仅 SSH）
     checkChannelQuota(transport, findings);
@@ -253,7 +255,7 @@ async function checkProbe(
 ): Promise<ProbeResult | null> {
   progress.start('探测远端环境');
   try {
-    const probe = await probeRemote(transport);
+    const probe = await probeRemote(transport, undefined, isOfflineMode());
     progress.done(`home=${probe.homeDir}`);
     return probe;
   } catch (error) {

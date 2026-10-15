@@ -64,6 +64,16 @@ Restart `dsh web` after installing. The plugin provides three surfaces:
 
 The plugin shares the CLI's session orchestration and remote layout (`~/.dsh-remote-explorer/btsd321/`), and the session table is shared in both directions: `dsh-remote-explorer status` shows plugin-kept sessions, and the panel shows CLI-kept ones (read-only, marked "external"). Two differences: **session lifetime rides the host dsh process** — quitting dsh stops the remote dsh too by default (`keepRemoteOnDispose: true` in the profile patch keeps it); LLM keys are read from the environment of the process that launched dsh. See the [usage guide](docs/usage-en.md).
 
+### Offline deployment
+
+When neither the local nor the remote machine can reach the public internet, prepare resources on a connected machine first, then deploy over the intranet SSH:
+
+- **Compatible local DSH already installed**: install the plugin with the dedicated offline installer, import the remote runtime bundle, enable `offline: true` in the plugin config, and connect from the remote-sessions panel.
+- **Standalone CLI**: use a platform package with bundled Node, import the runtime bundle via `offline-import`, then connect with `connect --offline`; no local DSH required.
+- **No runtime on the remote host**: build a runtime bundle on an internet-connected machine of the same OS and architecture with `offline-export`; offline connections never download missing dependencies — versions follow the bundle manifest.
+
+Full steps and limits are in the [offline deployment guide](docs/offline-cn.md) (Chinese); use the [agent deployment template](docs/offline-agent-readme.md) when delegating to an intranet agent. The offline model service and SSH authentication must be configured separately.
+
 ## Quick start
 
 > Examples below use the **source-run** form. With a release package, replace `pnpm exec tsx src/cli/bin.ts` with `./dsh-remote-explorer` (Windows: `dsh-remote-explorer.cmd`) — the options are identical.
@@ -227,7 +237,11 @@ Foundation   hosts/   util/
 | [src/provision/pnpm-installer.ts](src/provision/pnpm-installer.ts) | Install pnpm (pinned 11.7.0, reuses majors 10/11/12); version probe reads the on-disk package.json |
 | [src/provision/pnpm-profile.ts](src/provision/pnpm-profile.ts) | Idempotent pnpm 11 prerequisites in the host profile's pnpm-workspace.yaml (allowBuilds / minimumReleaseAge) |
 | [src/provision/profile-writer.ts](src/provision/profile-writer.ts) | Per-session independent `DSH_HOME` and profile/patch generation |
-| [src/provision/provisioner.ts](src/provision/provisioner.ts) | Provisioning orchestration, each step idempotent |
+| [src/provision/provisioner.ts](src/provision/provisioner.ts) | Provisioning orchestration, each step idempotent; strict-offline branch verifies preinstalled runtimes without any network step |
+| [src/provision/offline-runtime.ts](src/provision/offline-runtime.ts) | Strict-offline runtime inspection: validates preinstalled Node/DSH/pnpm, fails fast on anything missing; single switch (`isOfflineMode`) shared by CLI flag, env var and plugin config |
+| [src/provision/offline-bundle.ts](src/provision/offline-bundle.ts) | Offline bundle manifest parsing + archive validation: whitelist-only paths, symlink/hardlink boundary checks, expansion quotas (1 GiB archive / 8 GiB expanded / 200k entries) |
+| [src/provision/offline-transfer.ts](src/provision/offline-transfer.ts) | Export/import of runtime bundles: tar whitelisted runtime on the prep host, verify checksums on both ends, staged runtime self-check, atomic publish under install lock with rollback — refuses to overwrite existing installs |
+| [src/provision/offline-plugin.ts](src/provision/offline-plugin.ts) | Self-contained local plugin installer: Node-fs-only copy of manifest-verified files, merges the profile package.json (preserving user patches/credentials), install lock + backup, never touches pnpm |
 | [src/provision/remote-context.ts](src/provision/remote-context.ts) | Remote execution context: binds transport instance and path info |
 | [src/util/session-id.ts](src/util/session-id.ts) | Deterministic session id from host alias + remote directory |
 | [src/tunnel/port-allocator.ts](src/tunnel/port-allocator.ts) | Remote port allocation and listen confirmation |

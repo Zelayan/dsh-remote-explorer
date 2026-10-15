@@ -1,6 +1,6 @@
 {
   "name": "dsh-remote-explorer",
-  "version": "0.8.4",
+  "version": "0.8.5",
   "description": "远程开发启动器：把 dsh 装到远程主机并在本机浏览器中使用，凭据不离开本机",
   "icon": "./icon.jpg",
   "type": "module",
@@ -57,6 +57,7 @@
     "typecheck": "tsc --noEmit",
     "dsh-remote-explorer": "tsx src/cli/bin.ts",
     "build:plugin": "tsx scripts/build-plugin.ts",
+    "package:offline-plugin": "tsx scripts/package-offline-plugin.ts",
     "check:plugin": "tsx scripts/check-plugin.ts",
     "dev:plugin": "tsx scripts/dev-plugin.ts",
     "prepublishOnly": "tsx scripts/build-plugin.ts && tsx scripts/check-plugin.ts",
@@ -66,6 +67,7 @@
     "@deepseek-ai/schemastery": "^3.18.1",
     "ssh-config": "5.3.0",
     "ssh2": "1.17.0",
+    "tar": "7.5.22",
     "tsx": "^4.23.13",
     "yaml": "^2.9.1"
   },

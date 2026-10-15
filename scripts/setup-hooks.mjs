@@ -28,15 +28,22 @@ let linked = false;
 try {
   symlinkSync(HOOK_SRC, HOOK_DST);
   linked = true;
-  console.log('✅ pre-commit hook 已安装（符号链接）');
 } catch {
   // Windows 无开发者模式或权限不足时回退复制
   try {
     copyFileSync(HOOK_SRC, HOOK_DST);
-    chmodSync(HOOK_DST, 0o755);
-    console.log('✅ pre-commit hook 已安装（复制）');
   } catch (err) {
     console.error('❌ 安装 pre-commit hook 失败:', err.message);
     process.exit(1);
   }
 }
+
+// Git 会忽略不可执行的钩子；符号链接同样需要其目标具有执行权限。
+try {
+  chmodSync(HOOK_DST, 0o755);
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`❌ 设置 pre-commit hook 执行权限失败：${HOOK_DST}：${message}`);
+  process.exit(1);
+}
+console.log(`✅ pre-commit hook 已安装（${linked ? '符号链接' : '复制'}）`);

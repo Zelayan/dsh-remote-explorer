@@ -25,6 +25,8 @@ export interface ProvisionCommandOptions {
   alias: string;
   /** 远端工作目录；参与会话 id 计算 */
   cwd: string;
+  /** 严格离线引导 */
+  offline?: boolean;
   /** 目标 Node 版本 */
   nodeVersion?: string;
   /** 目标 dsh 版本或 dist-tag */
@@ -89,6 +91,7 @@ export async function runProvision(options: ProvisionCommandOptions): Promise<nu
 
     const result = await provision(transport, {
       sessionId,
+      ...(options.offline ? { offline: true } : {}),
       ...(options.nodeVersion ? { nodeVersion: options.nodeVersion } : {}),
       ...(options.dshVersion ? { dshVersion: options.dshVersion } : {}),
       refreshMirrors: options.refreshMirrors,

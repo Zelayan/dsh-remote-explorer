@@ -23,7 +23,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { build } from 'esbuild';
@@ -69,6 +69,10 @@ const HOST_BANNER = [
 export interface BuildPluginOptions {
   /** 是否压缩产物（默认否——dev 沙箱与冒烟判读都依赖可读产物） */
   minify?: boolean;
+  /** 内联非宿主依赖，供离线专用插件包使用 */
+  offline?: boolean;
+  /** 分发专用隔离输出目录，仅允许仓库 dist 下，避免与普通构建互相覆盖 */
+  outputDirectory?: string;
 }
 
 /**
@@ -78,12 +82,20 @@ export interface BuildPluginOptions {
  * @throws Error esbuild 失败
  */
 export async function buildPlugin(options: BuildPluginOptions = {}): Promise<void> {
+  const libDirectory = options.outputDirectory ? resolve(options.outputDirectory) : LIB_DIR;
+  if (libDirectory !== LIB_DIR && !libDirectory.startsWith(`${join(REPO_ROOT, 'dist')}${sep}`)) {
+    throw new Error(`构建输出必须是 lib 或仓库 dist 内目录：${libDirectory}`);
+  }
   const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')) as {
     name: string;
     version: string;
+    peerDependencies: Record<string, string>;
   };
-  rmSync(LIB_DIR, { recursive: true, force: true });
-  mkdirSync(LIB_DIR, { recursive: true });
+  const hostExternal = options.offline
+    ? [...Object.keys(pkg.peerDependencies), 'cpu-features', 'nan']
+    : HOST_EXTERNAL;
+  rmSync(libDirectory, { recursive: true, force: true });
+  mkdirSync(libDirectory, { recursive: true });
 
   // 版本号构建期注入（ping 路由回报用），避免运行时读 package.json 的路径耦合
   const define = { __PLUGIN_VERSION__: JSON.stringify(pkg.version) };
@@ -93,12 +105,12 @@ export async function buildPlugin(options: BuildPluginOptions = {}): Promise<voi
   //    分发形态运行期没有相邻 lib/ 可读，见 src/handoff/payload.ts）
   await build({
     entryPoints: [join(REPO_ROOT, 'src', 'handoff', 'host.ts')],
-    outfile: join(LIB_DIR, 'handoff-host.js'),
+    outfile: join(libDirectory, 'handoff-host.js'),
     format: 'esm',
     platform: 'node',
     target: 'node20',
     bundle: true,
-    external: HOST_EXTERNAL,
+    external: hostExternal,
     // ssh2 可选原生件（sshcrypto.node）在放行构建脚本的机器上存在——单文件
     // bundle 带不走它，empty loader 让 require 拿到空模块，ssh2 的 try/catch
     // 自然回落纯 JS（与 package.ts 对 cpu-features 的 external 同一哲学）
@@ -108,7 +120,7 @@ export async function buildPlugin(options: BuildPluginOptions = {}): Promise<voi
   });
   await build({
     entryPoints: [join(REPO_ROOT, 'src', 'handoff', 'client.tsx')],
-    outfile: join(LIB_DIR, 'handoff-client.js'),
+    outfile: join(libDirectory, 'handoff-client.js'),
     format: 'cjs',
     platform: 'browser',
     target: 'es2020',
@@ -128,20 +140,20 @@ export async function buildPlugin(options: BuildPluginOptions = {}): Promise<voi
   });
   const handoffDefine = {
     ...define,
-    __HANDOFF_HOST_SRC__: JSON.stringify(readFileSync(join(LIB_DIR, 'handoff-host.js'), 'utf8')),
-    __HANDOFF_CLIENT_SRC__: JSON.stringify(readFileSync(join(LIB_DIR, 'handoff-client.js'), 'utf8')),
+    __HANDOFF_HOST_SRC__: JSON.stringify(readFileSync(join(libDirectory, 'handoff-host.js'), 'utf8')),
+    __HANDOFF_CLIENT_SRC__: JSON.stringify(readFileSync(join(libDirectory, 'handoff-client.js'), 'utf8')),
   };
 
   // 1. 宿主半 → lib/index.js（ESM，理由见文件头：peer 裸导入必须走 ESM
   //    解析链才能命中 profile 的安装回退链接；CJS require(esm) 实测会崩）
   await build({
     entryPoints: [join(REPO_ROOT, 'src', 'plugin', 'index.ts')],
-    outfile: join(LIB_DIR, 'index.js'),
+    outfile: join(libDirectory, 'index.js'),
     format: 'esm',
     platform: 'node',
     target: 'node20',
     bundle: true,
-    external: HOST_EXTERNAL,
+    external: hostExternal,
     banner: { js: HOST_BANNER },
     // 同 handoff 宿主半：宿主半 bundle 了 ssh2，须容忍 .node 原生件存在
     loader: { '.node': 'empty' },
@@ -156,7 +168,7 @@ export async function buildPlugin(options: BuildPluginOptions = {}): Promise<voi
   //    factory 的返回值（含 name/inject/apply）
   await build({
     entryPoints: [join(REPO_ROOT, 'src', 'plugin-client', 'index.tsx')],
-    outfile: join(LIB_DIR, 'client.js'),
+    outfile: join(libDirectory, 'client.js'),
     format: 'cjs',
     platform: 'browser',
     target: 'es2020',
@@ -183,6 +195,7 @@ export async function buildPlugin(options: BuildPluginOptions = {}): Promise<voi
  * @returns 进程退出码
  */
 async function main(): Promise<number> {
+  const libDirectory = LIB_DIR;
   const { values } = parseArgs({
     options: {
       minify: { type: 'boolean', default: false },
@@ -195,15 +208,15 @@ async function main(): Promise<number> {
   try {
     progress.start('esbuild 双入口打包');
     await buildPlugin({ minify: values.minify === true });
-    const hostSize = statSync(join(LIB_DIR, 'index.js')).size;
-    const clientSize = existsSync(join(LIB_DIR, 'client.js'))
-      ? statSync(join(LIB_DIR, 'client.js')).size
+    const hostSize = statSync(join(libDirectory, 'index.js')).size;
+    const clientSize = existsSync(join(libDirectory, 'client.js'))
+      ? statSync(join(libDirectory, 'client.js')).size
       : 0;
-    const handoffHostSize = existsSync(join(LIB_DIR, 'handoff-host.js'))
-      ? statSync(join(LIB_DIR, 'handoff-host.js')).size
+    const handoffHostSize = existsSync(join(libDirectory, 'handoff-host.js'))
+      ? statSync(join(libDirectory, 'handoff-host.js')).size
       : 0;
-    const handoffClientSize = existsSync(join(LIB_DIR, 'handoff-client.js'))
-      ? statSync(join(LIB_DIR, 'handoff-client.js')).size
+    const handoffClientSize = existsSync(join(libDirectory, 'handoff-client.js'))
+      ? statSync(join(libDirectory, 'handoff-client.js')).size
       : 0;
     progress.done(`index.js ${(hostSize / 1000).toFixed(0)} KB，client.js ${(clientSize / 1000).toFixed(0)} KB，`
       + `handoff ${(handoffHostSize + handoffClientSize) / 1000 | 0} KB`);

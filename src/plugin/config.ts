@@ -21,6 +21,8 @@ import z from '@deepseek-ai/schemastery';
  * 不手写第二份接口——schema 即唯一真源。
  */
 export const Config = z.object({
+  /** 严格离线引导及版本探测 */
+  offline: z.boolean().default(false).description('严格离线模式（只复用预装运行时，不查询或下载）'),
   /** 默认主机别名（命令/面板未指定时用）；空串 = 不预选 */
   host: z.string().default('').description('默认 SSH 主机别名或 user@host[:port]'),
   /** 默认远端工作目录（POSIX 绝对路径）；空串 = 远端家目录 */

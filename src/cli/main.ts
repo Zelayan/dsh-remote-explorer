@@ -10,9 +10,7 @@
  * 分层约束：本文件属入口层，只做分派与错误呈现，不含业务逻辑。
  */
 
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import packageInfo from '../../package.json';
 import { parseArgs } from 'node:util';
 import { setConfigPath } from '../hosts/ssh-config-parser.js';
 import { runList } from './commands/list.js';
@@ -22,12 +20,13 @@ import { runConnect } from './commands/connect.js';
 import { runStatus } from './commands/status.js';
 import { runKill } from './commands/kill.js';
 import { runClean } from './commands/clean.js';
+import { runOfflineTransfer } from './commands/offline.js';
 import { RemoteError, toErrorMessage } from '../util/errors.js';
 import { normalizeRemoteCwd, validateRemoteCwd } from '../util/remote-cwd.js';
 import { bold, cyan, dim, printErr, println, red, yellow } from './output.js';
 
 /** 支持的子命令 */
-const COMMANDS = ['list', 'doctor', 'provision', 'connect', 'status', 'kill', 'clean', 'help'] as const;
+const COMMANDS = ['list', 'doctor', 'provision', 'connect', 'status', 'kill', 'clean', 'offline-export', 'offline-import', 'help'] as const;
 
 /** 子命令名 */
 type CommandName = (typeof COMMANDS)[number];
@@ -66,7 +65,11 @@ function printHelp(): void {
   println(`  ${cyan('provision')} <别名>          只做引导，不起服务（幂等）`);
   println(`  ${cyan('help')}                      显示本帮助`);
   println();
+  println('  offline-export <别名> --output <目录>   从同平台准备机导出纯运行时');
+  println('  offline-import <别名> --bundle <目录>   导入全新远端（拒绝覆盖已有安装）');
+  println();
   println(bold('connect 参数'));
+  println('  --offline                 严格离线引导（也适用于 provision）；环境变量 DSH_REMOTE_OFFLINE=1 对插件同样生效');
   println('  --cwd <远端路径>          远端工作目录，参与会话标识计算');
   println('  --local-port <端口>       本机监听端口（默认由系统分配）');
   println('  --no-open                 不自动打开浏览器');
@@ -125,9 +128,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   }
   if (rawCommand === '--version' || rawCommand === '-V') {
     // 版本号唯一来源：package.json。tsx 直跑与打包产物都能正确定位
-    const here = dirname(fileURLToPath(import.meta.url));
-    const pkg = JSON.parse(readFileSync(join(here, '..', '..', 'package.json'), 'utf8')) as { version: string };
-    println(`dsh-remote-explorer ${pkg.version}`);
+    println(`dsh-remote-explorer ${packageInfo.version}`);
     return 0;
   }
 
@@ -164,6 +165,9 @@ export async function main(argv: readonly string[]): Promise<number> {
   const { positionals, values } = parseArgs({
     args: [...rest],
     options: {
+      offline: { type: 'boolean', default: false },
+      output: { type: 'string' },
+      bundle: { type: 'string' },
       'ssh-config': { type: 'string' },
       'refresh-mirrors': { type: 'boolean', default: false },
       cwd: { type: 'string' },
@@ -275,6 +279,28 @@ export async function main(argv: readonly string[]): Promise<number> {
     };
   })();
 
+  if (command === 'offline-export' || command === 'offline-import') {
+    const directory = command === 'offline-export' ? values.output : values.bundle;
+    if (wslDistro !== undefined) {
+      printErr(red(`${command} 仅支持 SSH 主机，不支持 WSL 发行版`));
+      return 64;
+    }
+    if (!directory) {
+      printErr(red(`${command} 必须提供 ${command === 'offline-export' ? '--output' : '--bundle'} <本地目录>`));
+      return 64;
+    }
+    return runOfflineTransfer({
+      command, alias, directory,
+      ...(values['node-version'] ? { nodeVersion: values['node-version'] } : {}),
+      ...(privateKey ? { privateKey } : {}),
+      ...(effectivePassword !== undefined ? { password: effectivePassword } : {}),
+    });
+  }
+  if (values.offline && (refreshMirrors || !['connect', 'provision'].includes(command))) {
+    printErr(red('--offline 仅支持 connect/provision，且不能与 --refresh-mirrors 同用'));
+    return 64;
+  }
+
   if (command === 'doctor') {
     return runDoctor({
       alias,
@@ -326,11 +352,13 @@ export async function main(argv: readonly string[]): Promise<number> {
       forceRestart: values['force-restart'] === true,
       keepRemote: values['keep-remote'] === true,
       refreshMirrors,
+      ...(values.offline ? { offline: true } : {}),
       ...transportOpts,
     });
   }
 
   return runProvision({
+    ...(values.offline ? { offline: true } : {}),
     alias,
     cwd,
     ...(values['node-version'] ? { nodeVersion: values['node-version'] } : {}),
