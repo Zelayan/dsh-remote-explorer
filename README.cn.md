@@ -72,7 +72,7 @@ pnpm run build:plugin && dsh plugin --profile web add /path/to/repo
 - **独立 CLI**：使用自带 Node 的平台包，通过 `offline-import` 导入运行包，再用 `connect --offline` 连接；不要求本机安装 DSH。
 - **远端无运行环境**：先在同系统、同架构的联网准备机上使用 `offline-export` 制作运行包。离线连接不下载缺失依赖，版本以包内清单为准。
 
-资源制作、插件安装、兼容限制及验收见[离线部署指南](docs/offline-cn.md)；委托内网 Agent 时使用[部署指引模板](docs/offline-agent-readme.md)。离线模型服务与 SSH 认证需另行配置。
+离线模型服务与 SSH 认证需另行配置。
 
 ## 快速开始
 
