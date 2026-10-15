@@ -148,3 +148,9 @@
 **不做老会话技能迁移（有意决策，别再补回来）。** 曾实现过一版 `agents-migrate.ts`：首连时把 `sessions/<id>/agents/` 并入 `.agents`，同名保留机器级版本、迁完改名留痕、幂等、失败不抛错。用户否决，理由是这样没用——该目录承载的是**上一代的会话级技能副本**，而本机 `~/.agents` 才是用户实际维护技能的地方（带 `.skill-lock.json` 的来源与 hash 记录）；搬过来的是一批陈旧且无人维护的副本，远不如让用户在新位置重装一次干净。真要保留旧技能的场合，手工 `mv` 的成本远低于为此维护一条幂等迁移路径（还得处理同名裁决、留痕、并发锁、部分失败五种情形）。旧目录**不删也不读**：不删是为了不擅自处置用户数据，不读是因为 `DSH_AGENTS_HOME` 已不再指向它；它随 `clean` 清理死会话目录时自然消失。
 
 与第 15 条的 store 相反，**`.agents` 会被 `clean` 整个清除**（[clean.ts](../src/cli/commands/clean.ts)）：它是单一目录没有「保留最新 N 个」的概念，技能属可重装资源；也不按 owner 指纹 scope、不按活会话保护——活会话读同一目录，删掉只影响它后续**发现**到的技能（skill-filesystem 的根缺失属于有效空状态，不会让进程崩）。顺带一处语义更正：保留键 `DSH_AGENTS_HOME` 禁止用户配置的理由从「护会话隔离契约」变成「护技能共享契约」——被改走会让该会话看不到机器上已装的技能，还把新技能装到下次就找不到的地方。
+
+## 构建产物与离线分发
+
+**25. `lib/` 产物与构建机的 ssh2 原生件状态耦合（PR #2 审查实测踩过）。** `.node: 'empty'` loader 只在 esbuild **能解析到** `sshcrypto.node` 时才产出空桩模块（`require_sshcrypto() {}`）；构建机没跑过 allowBuilds（`node_modules/.pnpm/ssh2*/.../sshcrypto.node` 不存在）时，esbuild 把这个相对 require 留成运行时 `__require("./crypto/build/Release/sshcrypto.node")`。两种形态运行期等价（后者解析失败抛错 → ssh2 的 try/catch 回落纯 JS），但提交进版本库的 `lib/index.js` 会因此随构建环境漂移，diff 里混入环境噪声。**规范**：提交 lib 前确保 `pnpm install` 后原生件已构建（allowBuilds 生效）；复核方法是在干净环境重建后 `git diff -- lib` 应为零。
+
+**26. 测试的平台边界必须显式声明，不能靠「碰巧都能跑」。** `tests/unit/` 名义上是纯函数套件（CLAUDE.md 的标准命令在任意平台都该绿），但离线迁移回归（`offline-transfer.test.ts`）需要真实 `/bin/sh` + `flock` + POSIX 路径（`createRemotePaths` 拒绝 `C:\` 盘符），链接攻击用例需要 symlink 特权（Windows 无开发者模式报 EPERM）。不守卫的后果是标准命令在 Windows 常年 3 红，信号被稀释。**规范**：POSIX-only 用例用 `test(name, { skip: process.platform === 'win32' ? '原因' : false })`；symlink 用例先做能力探测（`symlinkSync` 探针）再决定 skip；跳过原因写进验证记录（[offline-verification.md](offline-verification.md)）。

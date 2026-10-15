@@ -233,7 +233,11 @@ dsh 自身会把代理变量透传给它拉起的 `git`/`pnpm` 子进程，装�
 | [src/provision/pnpm-installer.ts](src/provision/pnpm-installer.ts) | 装 pnpm（钉 11.7.0，主版本 10/11/12 兼容复用）；版本探针读落盘 package.json |
 | [src/provision/pnpm-profile.ts](src/provision/pnpm-profile.ts) | host profile 的 pnpm 11 前提幂等补齐（allowBuilds / minimumReleaseAge） |
 | [src/provision/profile-writer.ts](src/provision/profile-writer.ts) | 每会话独立 `DSH_HOME` 与 profile、patch 生成 |
-| [src/provision/provisioner.ts](src/provision/provisioner.ts) | 引导流程编排，各步均幂等 |
+| [src/provision/provisioner.ts](src/provision/provisioner.ts) | 引导流程编排，各步均幂等；含严格离线分支（只校验预装运行时，零网络步骤） |
+| [src/provision/offline-runtime.ts](src/provision/offline-runtime.ts) | 严格离线运行时检查：校验预装 Node/DSH/pnpm，缺件立即失败；`isOfflineMode` 收口 CLI 参数、环境变量与插件配置三个开关 |
+| [src/provision/offline-bundle.ts](src/provision/offline-bundle.ts) | 离线包清单解析与归档校验：白名单路径、符号/硬链接边界检查、展开限额（压缩 1 GiB / 展开 8 GiB / 20 万条目） |
+| [src/provision/offline-transfer.ts](src/provision/offline-transfer.ts) | 运行包导出/导入：准备机白名单打包、双端摘要校验、暂存运行自检、安装锁内原子发布带回滚，拒绝覆盖已有安装 |
+| [src/provision/offline-plugin.ts](src/provision/offline-plugin.ts) | 自包含本机插件安装器：纯 Node 文件 API 复制已验清单文件、合并 profile package.json（保留用户 patch 与凭据）、安装锁与备份，不触碰 pnpm |
 | [src/provision/remote-context.ts](src/provision/remote-context.ts) | 远端执行上下文封装：绑定传输实例与路径信息 |
 | [src/util/session-id.ts](src/util/session-id.ts) | 由主机别名 + 远端目录算确定性会话 id |
 | [src/tunnel/port-allocator.ts](src/tunnel/port-allocator.ts) | 远端端口分配与监听确认 |
