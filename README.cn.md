@@ -64,6 +64,16 @@ pnpm run build:plugin && dsh plugin --profile web add /path/to/repo
 
 插件与 CLI 共享同一套会话编排与远端落盘（`~/.dsh-remote-explorer/btsd321/`），会话表互通：`dsh-remote-explorer status` 能看到插件维持的会话，插件面板也能看到 CLI 维持的会话（标记「外部」只读）。两点差异：**会话生命周期挂在宿主 dsh 进程上**——dsh 退出默认连远端一起停（profile patch 里 `keepRemoteOnDispose: true` 可保留）；LLM key 取自启动 dsh 的进程环境。详见[使用指南](docs/usage-cn.md)。
 
+### 离线部署
+
+本机与远端无法访问公网时，可先在联网环境准备资源，再通过内网 SSH 部署：
+
+- **本机已有兼容 DSH**：用专用离线安装器安装插件，导入远端运行包后，在插件配置中启用 `offline: true`，从远程会话面板连接。
+- **独立 CLI**：使用自带 Node 的平台包，通过 `offline-import` 导入运行包，再用 `connect --offline` 连接；不要求本机安装 DSH。
+- **远端无运行环境**：先在同系统、同架构的联网准备机上使用 `offline-export` 制作运行包。离线连接不下载缺失依赖，版本以包内清单为准。
+
+资源制作、插件安装、兼容限制及验收见[离线部署指南](docs/offline-cn.md)；委托内网 Agent 时使用[部署指引模板](docs/offline-agent-readme.md)。离线模型服务与 SSH 认证需另行配置。
+
 ## 快速开始
 
 > 下文示例统一以**源码方式**书写；用 release 包时把 `pnpm exec tsx src/cli/bin.ts` 替换为 `./dsh-remote-explorer`（Windows 为 `dsh-remote-explorer.cmd`），参数完全一致。
@@ -223,7 +233,11 @@ dsh 自身会把代理变量透传给它拉起的 `git`/`pnpm` 子进程，装�
 | [src/provision/pnpm-installer.ts](src/provision/pnpm-installer.ts) | 装 pnpm（钉 11.7.0，主版本 10/11/12 兼容复用）；版本探针读落盘 package.json |
 | [src/provision/pnpm-profile.ts](src/provision/pnpm-profile.ts) | host profile 的 pnpm 11 前提幂等补齐（allowBuilds / minimumReleaseAge） |
 | [src/provision/profile-writer.ts](src/provision/profile-writer.ts) | 每会话独立 `DSH_HOME` 与 profile、patch 生成 |
-| [src/provision/provisioner.ts](src/provision/provisioner.ts) | 引导流程编排，各步均幂等 |
+| [src/provision/provisioner.ts](src/provision/provisioner.ts) | 引导流程编排，各步均幂等；含严格离线分支（只校验预装运行时，零网络步骤） |
+| [src/provision/offline-runtime.ts](src/provision/offline-runtime.ts) | 严格离线运行时检查：校验预装 Node/DSH/pnpm，缺件立即失败；`isOfflineMode` 收口 CLI 参数、环境变量与插件配置三个开关 |
+| [src/provision/offline-bundle.ts](src/provision/offline-bundle.ts) | 离线包清单解析与归档校验：白名单路径、符号/硬链接边界检查、展开限额（压缩 1 GiB / 展开 8 GiB / 20 万条目） |
+| [src/provision/offline-transfer.ts](src/provision/offline-transfer.ts) | 运行包导出/导入：准备机白名单打包、双端摘要校验、暂存运行自检、安装锁内原子发布带回滚，拒绝覆盖已有安装 |
+| [src/provision/offline-plugin.ts](src/provision/offline-plugin.ts) | 自包含本机插件安装器：纯 Node 文件 API 复制已验清单文件、合并 profile package.json（保留用户 patch 与凭据）、安装锁与备份，不触碰 pnpm |
 | [src/provision/remote-context.ts](src/provision/remote-context.ts) | 远端执行上下文封装：绑定传输实例与路径信息 |
 | [src/util/session-id.ts](src/util/session-id.ts) | 由主机别名 + 远端目录算确定性会话 id |
 | [src/tunnel/port-allocator.ts](src/tunnel/port-allocator.ts) | 远端端口分配与监听确认 |

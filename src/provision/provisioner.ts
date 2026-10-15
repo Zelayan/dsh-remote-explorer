@@ -10,6 +10,7 @@
  * 分层约束：本文件属能力层，可以用传输层与基础层，不得 import 编排层（session/）。
  */
 
+import { inspectOfflineRuntime, isOfflineMode } from './offline-runtime.js';
 import { assertDiskSpace, probeRemote, type ProbeResult } from './probe.js';
 import { selectMirror } from './mirror-selector.js';
 import { DEFAULT_NODE_VERSION, ensureNode, type NodeInstallResult } from './node-installer.js';
@@ -28,6 +29,8 @@ const log = createLogger('provisioner');
 
 /** 引导选项 */
 export interface ProvisionOptions {
+  /** 严格离线：只复用预装资源，不测速、不解析在线版本、不下载安装 */
+  offline?: boolean;
   /** 会话 id */
   sessionId: string;
   /** 目标 Node 版本；省略用已验证稳定的默认值 */
@@ -100,13 +103,25 @@ export async function provision(
 
   // 1. 探测远端环境
   options.onStageStart?.('探测远端环境');
-  const probe = await probeRemote(transport, signal);
+  const offline = isOfflineMode(options.offline);
+  const probe = await probeRemote(transport, signal, offline);
   assertDiskSpace(probe, transport.hostAlias);
   const paths = createRemotePaths(probe.homeDir);
   const ctx: RemoteContext = { transport, paths };
   options.onStageDone?.(`${probe.platform.os}/${probe.platform.arch}`);
 
   const nodeVersion = options.nodeVersion ?? DEFAULT_NODE_VERSION;
+  if (offline) {
+    if (options.refreshMirrors) throw new Error('严格离线模式不能与 refreshMirrors 同时使用');
+    options.onStageStart?.('严格离线校验运行时（不查询、不下载）');
+    const { node, dsh } = await inspectOfflineRuntime(ctx, { ...options, nodeVersion });
+    await ensurePnpmProfileSettings(ctx, signal ? { signal } : {});
+    const profile = await prepareSessionProfile(ctx, {
+      ...options, dshBin: dsh.dshBin, nodeBinDir: node.binDir,
+    });
+    options.onStageDone?.(`复用 Node ${node.version} / DSH ${dsh.version}`);
+    return { paths, probe, node, dsh, profile };
+  }
   const alreadyHasNode = probe.managedNodes.some(node => node.version === nodeVersion);
 
   // 2. Node 镜像测速——已装目标版本时不需要，省掉一次网络往返

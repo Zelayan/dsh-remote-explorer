@@ -101,6 +101,7 @@ const REQUIRED_BYTES = 1_500_000_000;
 export async function probeRemote(
   transport: RemoteTransport,
   signal?: AbortSignal,
+  offline = false,
 ): Promise<ProbeResult> {
   const platform = transport.platform;
 
@@ -130,7 +131,7 @@ export async function probeRemote(
     hasXz: hasTool(result.stdout, 'xz'),
   };
 
-  if (!tools.hasCurl && !tools.hasWget) {
+  if (!offline && !tools.hasCurl && !tools.hasWget) {
     throw new RemoteError(
       'REMOTE_TOOL_MISSING',
       `主机 ${transport.hostAlias} 上没有 curl 也没有 wget，无法下载 Node；`
