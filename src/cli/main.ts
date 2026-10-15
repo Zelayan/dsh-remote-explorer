@@ -281,8 +281,12 @@ export async function main(argv: readonly string[]): Promise<number> {
 
   if (command === 'offline-export' || command === 'offline-import') {
     const directory = command === 'offline-export' ? values.output : values.bundle;
-    if (!directory || wslDistro !== undefined) {
-      printErr(red(`${command} 仅支持 SSH，必须提供 ${command === 'offline-export' ? '--output' : '--bundle'} <本地目录>`));
+    if (wslDistro !== undefined) {
+      printErr(red(`${command} 仅支持 SSH 主机，不支持 WSL 发行版`));
+      return 64;
+    }
+    if (!directory) {
+      printErr(red(`${command} 必须提供 ${command === 'offline-export' ? '--output' : '--bundle'} <本地目录>`));
       return 64;
     }
     return runOfflineTransfer({

@@ -199,7 +199,15 @@ export async function installOfflinePlugin(bundleDirectory: string, profileDirec
   // 2. 独占 profile 安装锁；所有待发布与待清理路径均在其下、由本次 UUID 生成。
   const manifestPath = join(profile, 'package.json');
   const lock = join(profile, '.remote-offline-install.lock');
-  await mkdir(lock);
+  try {
+    await mkdir(lock);
+  } catch (error: unknown) {
+    // Ctrl-C/SIGKILL 会绕过 finally 残留锁目录；给出处置指引而不是裸 EEXIST。
+    if (isRecord(error) && error.code === 'EEXIST') {
+      throw new Error(`profile 已存在离线安装锁：${lock}。可能是上次安装被中断（Ctrl-C/断电）后残留；确认没有其他安装器在运行后，删除该空目录再重试`);
+    }
+    throw error;
+  }
   const id = randomUUID();
   const nodeModules = join(profile, 'node_modules');
   const sources = join(profile, 'offline-packages');
@@ -215,6 +223,8 @@ export async function installOfflinePlugin(bundleDirectory: string, profileDirec
     if (!manifestInfo.isFile() || manifestInfo.isSymbolicLink()) {
       throw new Error(`profile package.json 必须是普通文件：${manifestPath}`);
     }
+    // 重写 profile 清单时保留原文件权限位，不把 644 收紧成 600。
+    const manifestMode = manifestInfo.mode & 0o777;
     const before = await readFile(manifestPath, 'utf8');
     const current: unknown = JSON.parse(before);
     assertProfileManifest(current, manifestPath);
@@ -241,7 +251,7 @@ export async function installOfflinePlugin(bundleDirectory: string, profileDirec
     }
     current.dependencies = { ...current.dependencies, [manifest.name]: `file:./offline-packages/${sourceName}` };
     current.dsh.profile.bundles.push(manifest.name);
-    await writeFile(temporaryManifest, `${JSON.stringify(current, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    await writeFile(temporaryManifest, `${JSON.stringify(current, null, 2)}\n`, { flag: 'wx', mode: manifestMode });
     if (await readFile(manifestPath, 'utf8') !== before) {
       throw new Error(`安装期间 profile 已被其他进程修改：${manifestPath}；请停止宿主后重试`);
     }
