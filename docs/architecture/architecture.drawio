@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram id="arch-cn" name="架构（中文）">
+    <mxGraphModel dx="800" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="826" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="local" value="本机 Local（Windows / Linux / macOS）" style="swimlane;startSize=30;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="600" height="620" as="geometry" />
+        </mxCell>
+        <mxCell id="browser" value="浏览器&#xa;127.0.0.1:本地端口" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="local">
+          <mxGeometry x="70" y="60" width="240" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="explorer" value="dsh-remote-explorer&#xa;CLI 常驻 / 本机 dsh 插件宿主" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="local">
+          <mxGeometry x="70" y="200" width="240" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="provision" value="远端引导 provision/&#xa;Node · dsh · pnpm · 离线四件套" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="local">
+          <mxGeometry x="70" y="350" width="240" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="credential" value="LLM 凭据代理&#xa;DEEPSEEK_API_KEY 只存本机" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="local">
+          <mxGeometry x="300" y="460" width="240" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="remote" value="远端 Remote（Linux / macOS）" style="swimlane;startSize=30;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="700" y="240" width="380" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="remote-dsh" value="远端 dsh&#xa;webserver 127.0.0.1 · session · 终端" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="remote">
+          <mxGeometry x="20" y="50" width="340" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="llm-api" value="真实 LLM API&#xa;仅本机直连出网" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="350" y="700" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="e-browser-explorer" value="HTTP / WS + 会话令牌" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endSize=8;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="browser" target="explorer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-explorer-provision" value="打开流水线触发" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endSize=8;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="explorer" target="provision">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-explorer-dsh" value="SSH 正向转发" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endSize=8;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="explorer" target="remote-dsh">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-provision-dsh" value="SSH/SFTP 安装运行时" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endSize=8;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.25;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="provision" target="remote-dsh">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="805" y="430" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-dsh-credential" value="反向隧道 · 代理令牌" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endSize=8;dashed=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="remote-dsh" target="credential">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="890" y="540" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-credential-llm" value="真实 key 调用" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endSize=8;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="credential" target="llm-api">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="arch-en" name="Architecture (EN)">
+    <mxGraphModel dx="800" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="826" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="local" value="Local Machine (Windows / Linux / macOS)" style="swimlane;startSize=30;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="600" height="620" as="geometry" />
+        </mxCell>
+        <mxCell id="browser" value="Browser&#xa;127.0.0.1:local-port" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="local">
+          <mxGeometry x="70" y="60" width="240" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="explorer" value="dsh-remote-explorer&#xa;CLI long-running / local dsh plugin host" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="local">
+          <mxGeometry x="70" y="200" width="240" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="provision" value="Remote provisioning&#xa;Node · dsh · pnpm · offline suite" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="local">
+          <mxGeometry x="70" y="350" width="240" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="credential" value="LLM credential proxy&#xa;DEEPSEEK_API_KEY stays local" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="local">
+          <mxGeometry x="300" y="460" width="240" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="remote" value="Remote Host (Linux / macOS)" style="swimlane;startSize=30;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="700" y="240" width="380" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="remote-dsh" value="Remote dsh&#xa;webserver 127.0.0.1 · session · terminal" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="remote">
+          <mxGeometry x="20" y="50" width="340" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="llm-api" value="Real LLM API&#xa;local direct egress only" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="350" y="700" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="e-browser-explorer" value="HTTP / WS + session token" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endSize=8;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="browser" target="explorer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-explorer-provision" value="open-pipeline trigger" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endSize=8;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="explorer" target="provision">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-explorer-dsh" value="SSH forward tunnel" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endSize=8;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="explorer" target="remote-dsh">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-provision-dsh" value="SSH/SFTP runtime install" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endSize=8;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.25;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="provision" target="remote-dsh">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="805" y="430" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-dsh-credential" value="reverse tunnel · proxy token" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endSize=8;dashed=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="remote-dsh" target="credential">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="890" y="540" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-credential-llm" value="real-key calls" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endSize=8;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="credential" target="llm-api">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
