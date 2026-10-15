@@ -7,7 +7,11 @@ import { parseArgs } from 'node:util';
 import { installOfflinePlugin } from '../src/provision/offline-plugin.js';
 import { println } from '../src/cli/output.js';
 
-/** 解析参数并执行纯本地安装。 */
+/**
+ * 解析参数并执行纯本地安装。
+ * @returns 安装完成并输出新增路径
+ * @throws Error 缺少参数、宿主未确认停止或插件安装失败
+ */
 async function main(): Promise<void> {
   const { values } = parseArgs({ options: {
     bundle: { type: 'string' },
@@ -21,4 +25,8 @@ async function main(): Promise<void> {
   println(`离线插件已安装：${installed}`);
   println('请重启目标 DSH。未修改 pnpm 锁文件；以后执行包管理器操作可能重排安装，请保留 offline-packages 本地源。');
 }
-void main().catch(error => { println(error instanceof Error ? error.message : String(error)); process.exitCode = 1; });
+
+void main().catch((error: unknown): void => {
+  println(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+});

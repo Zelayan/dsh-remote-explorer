@@ -11,15 +11,14 @@ import { parseSemver } from './dsh-installer.js';
 import { probeRemote } from './probe.js';
 import { createRemotePaths } from './remote-paths.js';
 import { inspectOfflineRuntime } from './offline-runtime.js';
-import { sha256File, verifyOfflineBundle, type OfflineManifest } from './offline-bundle.js';
+import { MAX_OFFLINE_ARCHIVE_BYTES, sha256File, verifyOfflineBundle } from './offline-bundle.js';
+import type { OfflineManifest } from './offline-bundle.js';
 import { lockInstallCommand } from './install-lock.js';
 import { quote } from '../util/shell-quote.js';
 import type { RemoteTransport } from '../transport/types.js';
 
 /** 归档传输超时，覆盖慢速内网 */
 const TRANSFER_TIMEOUT_MS = 900_000;
-/** 当前传输接口整包读回，超过 1 GiB 时明确拒绝而不是耗尽内存 */
-const MAX_ARCHIVE_BYTES = 1024 ** 3;
 
 /**
  * 从已经完成 provision 的准备机导出；输出目录必须不存在，避免覆盖用户数据。
@@ -27,6 +26,7 @@ const MAX_ARCHIVE_BYTES = 1024 ** 3;
  * @param directory - 本机输出目录
  * @param nodeVersion - 需要携带的 Node 精确版本
  * @returns 已验证的清单
+ * @throws Error 平台不支持、资源不完整、输出目录已存在或归档传输/校验失败
  */
 export async function exportOfflineBundle(transport: RemoteTransport, directory: string, nodeVersion: string): Promise<OfflineManifest> {
   const probe = await probeRemote(transport, undefined, true);
@@ -49,14 +49,18 @@ export async function exportOfflineBundle(transport: RemoteTransport, directory:
     if (!parseSemver(snapshotVersion)) throw new Error('导出快照的 DSH 版本无效');
     const size = await transport.exec(`wc -c < ${quote(archive)}`);
     const bytes = Number(size.stdout.trim());
-    if (!Number.isSafeInteger(bytes) || bytes <= 0 || bytes > MAX_ARCHIVE_BYTES) {
+    if (!Number.isSafeInteger(bytes) || bytes <= 0 || bytes > MAX_OFFLINE_ARCHIVE_BYTES) {
       throw new Error(`离线归档大小 ${bytes} 不受支持，当前上限为 1 GiB`);
     }
     const localArchive = join(directory, 'runtime.tar.gz');
     await writeFile(localArchive, await transport.readRemoteFile(archive, { timeoutMs: TRANSFER_TIMEOUT_MS }));
     const manifest: OfflineManifest = {
-      format: 1, os: probe.platform.os, arch: probe.platform.arch,
-      nodeVersion, dshVersion: snapshotVersion, sha256: await sha256File(localArchive),
+      format: 1,
+      os: probe.platform.os,
+      arch: probe.platform.arch,
+      nodeVersion,
+      dshVersion: snapshotVersion,
+      sha256: await sha256File(localArchive),
     };
     await writeFile(join(directory, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
     return await verifyOfflineBundle(directory);

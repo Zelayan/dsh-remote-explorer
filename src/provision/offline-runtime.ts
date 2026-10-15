@@ -38,7 +38,10 @@ export async function inspectOfflineRuntime(ctx: RemoteContext, options: {
 }): Promise<OfflineRuntime> {
   const { paths, transport } = ctx;
   const { nodeVersion, signal } = options;
-  if (!/^v\d+\.\d+\.\d+$/.test(nodeVersion)) throw new Error(`离线 Node 版本必须为 vX.Y.Z，实际为 ${nodeVersion}`);
+  signal?.throwIfAborted();
+  if (!/^v\d+\.\d+\.\d+$/.test(nodeVersion)) {
+    throw new Error(`主机 ${transport.hostAlias} 的离线 Node 版本必须为 vX.Y.Z，实际为 ${nodeVersion}`);
+  }
   if (options.dshVersion !== undefined && !parseSemver(options.dshVersion)) {
     throw new Error(`离线模式不解析 DSH 标签，请指定精确版本：${options.dshVersion}`);
   }
