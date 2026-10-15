@@ -8,7 +8,9 @@
 
 ## 离线增强版
 
-本分支提供 `connect/provision --offline`、远端运行包 `offline-export/offline-import` 及自包含 DSH 插件离线安装器。完整步骤、兼容限制与断网验收见 [离线部署指南](docs/offline-cn.md)。离线模型服务仍须另行准备。
+本分支提供 `connect/provision --offline`、远端运行包 `offline-export/offline-import` 及自包含 DSH 插件离线安装器。完整步骤、兼容限制与断网验收见 [离线部署指南](docs/offline-cn.md)，将整个离线包交给内网 Agent 时使用 [AI 部署指引](docs/offline-agent-readme.md)。离线模型服务仍须另行准备。
+
+Windows 已安装 DSH 时优先走**插件安装 → 辅助 CLI 导入 Linux 运行包 → DSH 面板连接**，完整总包必须同时包含插件、Windows CLI、Linux 运行包及校验文件。已收到离线插件安装成功、可新建远程会话的用户反馈；[分项验证记录](docs/offline-cn.md#8-本次已确认的验证结果)区分已确认与仍待验收的终端、文件及模型功能。
 
 ## 支持的环境
 

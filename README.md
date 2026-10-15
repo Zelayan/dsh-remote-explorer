@@ -8,7 +8,7 @@ Inspired by VS Code Remote-SSH, Zed, and JetBrains Gateway — **code and sessio
 
 ## 离线增强版
 
-本分支新增严格离线引导、远端运行包导入导出和本机插件离线安装器，详见[离线部署指南](docs/offline-cn.md)。
+本分支新增严格离线引导、远端运行包导入导出和本机插件离线安装器，详见[离线部署指南](docs/offline-cn.md)与[内网 Agent 部署指引](docs/offline-agent-readme.md)。Windows 已安装 DSH 时优先安装离线插件，再用辅助 CLI 导入 Linux 运行包并从 DSH 面板连接；完整总包必须包含插件、Windows CLI、Linux 运行包及校验文件。离线插件安装及新建远程会话已获用户确认，其他功能的[分项验证状态](docs/offline-cn.md#8-本次已确认的验证结果)单独记录。
 
 ## Supported environments
 
