@@ -17,6 +17,7 @@
  * openSession 的 fixed 模式），绝不进日志缓冲、快照与错误消息。
  */
 
+import { isOfflineMode } from '../provision/offline-runtime.js';
 import { openSession, type RemoteSession, type TransportType } from '../session/session-manager.js';
 import { HANDOFF_PROTOCOL_VERSION, type ManageHandlers } from '../handoff/protocol.js';
 import { listSessions } from '../session/session-registry.js';
@@ -184,6 +185,8 @@ export class SupervisorError extends Error {
 
 /** 监督器的默认值来源（插件 Config 的子集） */
 export interface SupervisorDefaults {
+  /** 严格离线引导，省略保持在线流程 */
+  offline?: boolean;
   /** 默认远端工作目录 */
   cwd: string;
   /** 默认本机端口（0 = OS 分配） */
@@ -240,6 +243,9 @@ export class SessionSupervisor {
    * @param defaults - 插件配置提供的默认值
    */
   constructor(private readonly defaults: SupervisorDefaults) {}
+
+  /** 当前宿主是否禁止引导及版本查询联网。 */
+  get offline(): boolean { return isOfflineMode(this.defaults.offline); }
 
   /**
    * 非阻塞发起连接。
@@ -469,7 +475,9 @@ export class SessionSupervisor {
         log.info(line);
       }
 
+      if (this.offline) this.push(record, 'info', '严格离线模式：不测速、不查询在线版本、不下载运行时');
       const session = await openSession({
+        ...(this.offline ? { offline: true } : {}),
         hostAlias: request.hostAlias,
         remoteCwd: record.remoteCwd,
         // 传输类型与 WSL 参数透传；缺省 'ssh' 保持向后兼容

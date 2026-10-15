@@ -125,7 +125,7 @@ function buildRoutes(supervisor: SessionSupervisor): RouteDef[] {
       // 手动输入），不会抛错——此处无需 try/catch
       path: `${ROUTE_PREFIX}/dsh-versions`,
       methods: ['GET'],
-      fetch: async () => Response.json(await fetchDshVersions()),
+      fetch: async () => Response.json(supervisor.offline ? { versions: [] } : await fetchDshVersions()),
     },
     {
       // Node 已发布版本列表：面板版本下拉框的数据源（本机直接查 Node 官方
@@ -134,7 +134,7 @@ function buildRoutes(supervisor: SessionSupervisor): RouteDef[] {
       // try/catch
       path: `${ROUTE_PREFIX}/node-versions`,
       methods: ['GET'],
-      fetch: async () => Response.json(await fetchNodeVersions()),
+      fetch: async () => Response.json(supervisor.offline ? { versions: [] } : await fetchNodeVersions()),
     },
     {
       // 单会话详情 + 增量日志（面板 1.5s 轮询 ?id=<会话id>&since=<seq>）

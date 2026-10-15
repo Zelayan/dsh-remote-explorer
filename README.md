@@ -6,6 +6,10 @@ Remote development launcher: install [dsh](https://www.npmjs.com/package/@deepse
 
 Inspired by VS Code Remote-SSH, Zed, and JetBrains Gateway — **code and sessions live on the remote, the local machine only renders the UI**.
 
+## 离线增强版
+
+本分支新增严格离线引导、远端运行包导入导出和本机插件离线安装器，详见[离线部署指南](docs/offline-cn.md)。
+
 ## Supported environments
 
 - **Local (client)**: Windows / Linux / macOS. Node.js v20.19+ or v22+ and pnpm 11+ are only needed for the **source-run** mode (pnpm is the default dev package manager, pinned via `packageManager`); release packages bundle their own Node runtime.

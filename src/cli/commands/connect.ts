@@ -34,6 +34,8 @@ export interface ConnectCommandOptions {
   cwd: string;
   /** 本机端口；0 表示 OS 分配 */
   localPort: number;
+  /** 严格离线引导 */
+  offline?: boolean;
   /** 目标 Node 版本 */
   nodeVersion?: string;
   /** 目标 dsh 版本或 dist-tag */
@@ -87,6 +89,7 @@ export async function runConnect(options: ConnectCommandOptions): Promise<number
     session = await openSession({
       hostAlias: options.alias,
       remoteCwd: options.cwd,
+      ...(options.offline ? { offline: true } : {}),
       localPort: options.localPort,
       ...(options.transportType ? { transportType: options.transportType } : {}),
       ...(options.distroName ? { distroName: options.distroName } : {}),

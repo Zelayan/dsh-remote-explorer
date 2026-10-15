@@ -34,6 +34,8 @@ export interface OpenSessionOptions {
   distroName?: string;
   /** WSL 用户名（transportType='wsl' 时可选） */
   wslUser?: string;
+  /** 严格离线引导，只使用已安装的运行时 */
+  offline?: boolean;
   /** 目标 Node 版本 */
   nodeVersion?: string;
   /** 目标 dsh 版本或 dist-tag */

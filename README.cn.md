@@ -6,6 +6,10 @@
 
 参照 VS Code Remote-SSH、Zed、JetBrains Gateway 的做法——**代码与会话都在远端，本机只做呈现**。
 
+## 离线增强版
+
+本分支提供 `connect/provision --offline`、远端运行包 `offline-export/offline-import` 及自包含 DSH 插件离线安装器。完整步骤、兼容限制与断网验收见 [离线部署指南](docs/offline-cn.md)。离线模型服务仍须另行准备。
+
 ## 支持的环境
 
 - **本机（客户端）**：Windows / Linux / macOS。Node.js v20.19+ 或 v22+ 与 pnpm 11+ 仅**源码运行方式**需要（开发环境默认 pnpm，`packageManager` 已钉版本）；release 包自带 Node 运行时。

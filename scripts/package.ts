@@ -45,6 +45,7 @@ const BUNDLED_DOCS: ReadonlyArray<{ from: string; to: string }> = [
   { from: 'LICENSE', to: 'LICENSE' },
   { from: 'README.md', to: 'README.md' },
   { from: 'README.cn.md', to: 'README.cn.md' },
+  { from: 'docs/offline-cn.md', to: 'docs/offline-cn.md' },
   { from: 'docs/usage-cn.md', to: 'docs/usage-cn.md' },
   { from: 'docs/usage-en.md', to: 'docs/usage-en.md' },
 ];
