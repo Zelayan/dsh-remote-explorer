@@ -6,10 +6,6 @@ Remote development launcher: install [dsh](https://www.npmjs.com/package/@deepse
 
 Inspired by VS Code Remote-SSH, Zed, and JetBrains Gateway — **code and sessions live on the remote, the local machine only renders the UI**.
 
-## 离线增强版
-
-本分支新增严格离线引导、远端运行包导入导出和本机插件离线安装器，详见[离线部署指南](docs/offline-cn.md)与[内网 Agent 部署指引](docs/offline-agent-readme.md)。Windows 已安装 DSH 时优先安装离线插件，再用辅助 CLI 导入 Linux 运行包并从 DSH 面板连接；完整总包必须包含插件、Windows CLI、Linux 运行包及校验文件。离线插件安装及新建远程会话已获用户确认，其他功能的[分项验证状态](docs/offline-cn.md#8-本次已确认的验证结果)单独记录。
-
 ## Supported environments
 
 - **Local (client)**: Windows / Linux / macOS. Node.js v20.19+ or v22+ and pnpm 11+ are only needed for the **source-run** mode (pnpm is the default dev package manager, pinned via `packageManager`); release packages bundle their own Node runtime.
@@ -67,6 +63,16 @@ Restart `dsh web` after installing. The plugin provides three surfaces:
 - **Agent tools** `remote_hosts_list / remote_connect / remote_status / remote_kill` (behind dsh's regular tool-approval gate)
 
 The plugin shares the CLI's session orchestration and remote layout (`~/.dsh-remote-explorer/btsd321/`), and the session table is shared in both directions: `dsh-remote-explorer status` shows plugin-kept sessions, and the panel shows CLI-kept ones (read-only, marked "external"). Two differences: **session lifetime rides the host dsh process** — quitting dsh stops the remote dsh too by default (`keepRemoteOnDispose: true` in the profile patch keeps it); LLM keys are read from the environment of the process that launched dsh. See the [usage guide](docs/usage-en.md).
+
+### 离线部署
+
+本机与远端无法访问公网时，可先在联网环境准备资源，再通过内网 SSH 部署：
+
+- **本机已有兼容 DSH**：用专用离线安装器安装插件，导入远端运行包后，启用插件配置 `offline: true` 并从远程会话面板连接。
+- **独立 CLI**：使用自带 Node 的平台包，通过 `offline-import` 导入运行包，再用 `connect --offline` 连接；不要求本机安装 DSH。
+- **远端无运行环境**：先在同系统、同架构的联网准备机上使用 `offline-export` 制作运行包；离线连接不下载缺失依赖，版本以包内清单为准。
+
+完整步骤与限制见[离线部署指南](docs/offline-cn.md)，委托内网 Agent 时使用[部署指引模板](docs/offline-agent-readme.md)。离线模型服务和 SSH 认证需另行配置。
 
 ## Quick start
 

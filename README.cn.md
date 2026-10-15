@@ -6,12 +6,6 @@
 
 参照 VS Code Remote-SSH、Zed、JetBrains Gateway 的做法——**代码与会话都在远端，本机只做呈现**。
 
-## 离线增强版
-
-本分支提供 `connect/provision --offline`、远端运行包 `offline-export/offline-import` 及自包含 DSH 插件离线安装器。完整步骤、兼容限制与断网验收见 [离线部署指南](docs/offline-cn.md)，将整个离线包交给内网 Agent 时使用 [AI 部署指引](docs/offline-agent-readme.md)。离线模型服务仍须另行准备。
-
-Windows 已安装 DSH 时优先走**插件安装 → 辅助 CLI 导入 Linux 运行包 → DSH 面板连接**，完整总包必须同时包含插件、Windows CLI、Linux 运行包及校验文件。已收到离线插件安装成功、可新建远程会话的用户反馈；[分项验证记录](docs/offline-cn.md#8-本次已确认的验证结果)区分已确认与仍待验收的终端、文件及模型功能。
-
 ## 支持的环境
 
 - **本机（客户端）**：Windows / Linux / macOS。Node.js v20.19+ 或 v22+ 与 pnpm 11+ 仅**源码运行方式**需要（开发环境默认 pnpm，`packageManager` 已钉版本）；release 包自带 Node 运行时。
@@ -69,6 +63,16 @@ pnpm run build:plugin && dsh plugin --profile web add /path/to/repo
 - **agent 工具** `remote_hosts_list / remote_connect / remote_status / remote_kill`（受 dsh 的工具审批门槛约束）
 
 插件与 CLI 共享同一套会话编排与远端落盘（`~/.dsh-remote-explorer/btsd321/`），会话表互通：`dsh-remote-explorer status` 能看到插件维持的会话，插件面板也能看到 CLI 维持的会话（标记「外部」只读）。两点差异：**会话生命周期挂在宿主 dsh 进程上**——dsh 退出默认连远端一起停（profile patch 里 `keepRemoteOnDispose: true` 可保留）；LLM key 取自启动 dsh 的进程环境。详见[使用指南](docs/usage-cn.md)。
+
+### 离线部署
+
+本机与远端无法访问公网时，可先在联网环境准备资源，再通过内网 SSH 部署：
+
+- **本机已有兼容 DSH**：用专用离线安装器安装插件，导入远端运行包后，在插件配置中启用 `offline: true`，从远程会话面板连接。
+- **独立 CLI**：使用自带 Node 的平台包，通过 `offline-import` 导入运行包，再用 `connect --offline` 连接；不要求本机安装 DSH。
+- **远端无运行环境**：先在同系统、同架构的联网准备机上使用 `offline-export` 制作运行包。离线连接不下载缺失依赖，版本以包内清单为准。
+
+资源制作、插件安装、兼容限制及验收见[离线部署指南](docs/offline-cn.md)；委托内网 Agent 时使用[部署指引模板](docs/offline-agent-readme.md)。离线模型服务与 SSH 认证需另行配置。
 
 ## 快速开始
 
