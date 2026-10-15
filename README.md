@@ -72,7 +72,7 @@ When neither the local nor the remote machine can reach the public internet, pre
 - **Standalone CLI**: use a platform package with bundled Node, import the runtime bundle via `offline-import`, then connect with `connect --offline`; no local DSH required.
 - **No runtime on the remote host**: build a runtime bundle on an internet-connected machine of the same OS and architecture with `offline-export`; offline connections never download missing dependencies — versions follow the bundle manifest.
 
-Full steps and limits are in the [offline deployment guide](docs/offline-cn.md) (Chinese); use the [agent deployment template](docs/offline-agent-readme.md) when delegating to an intranet agent. The offline model service and SSH authentication must be configured separately.
+The offline model service and SSH authentication must be configured separately.
 
 ## Quick start
 
