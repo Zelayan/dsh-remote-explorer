@@ -25,7 +25,7 @@ import { readAdvancedConfig } from './advanced-store.js';
 import { renderConnectSummary } from './connect-summary.js';
 import { planJumpHosts } from '../session/transport/factory.js';
 import type { JumpEntry } from '../hosts/ssh-config-parser.js';
-import { INITIAL_STATE, type SessionState } from '../session/lifecycle-state.js';
+import { INITIAL_STATE, transition, type SessionState } from '../session/lifecycle-state.js';
 import { computeSessionId } from '../util/session-id.js';
 import { normalizeRemoteCwd, validateRemoteCwd } from '../util/remote-cwd.js';
 import { toErrorMessage } from '../util/errors.js';
@@ -516,9 +516,13 @@ export class SessionSupervisor {
       record.state = session.currentState;
       this.push(record, 'info', `会话就绪：http://127.0.0.1:${session.localPort}（远端 pid ${session.remotePid}）`);
     } catch (error) {
-      // 失败不留死记录：connecting 收尾、错误进日志与快照，用户可重试
-      record.connectError = toErrorMessage(error);
-      this.push(record, 'error', `连接失败：${record.connectError}`);
+      // 失败时记录错误，状态机进入终态，记录保留（让前端能看到错误日志与状态）
+      const errorMsg = toErrorMessage(error);
+      record.connectError = errorMsg;
+      this.push(record, 'error', `连接失败：${errorMsg}`);
+      // 状态机进入终态 'reconnect-exhausted'（首次连接失败视为重连耗尽，不再尝试）
+      record.state = transition(record.state, { type: 'fail', error: errorMsg });
+      log.info(`[Supervisor] 连接失败，会话进入终态 ${record.sessionId.slice(0, 8)}…：${errorMsg}`);
     } finally {
       record.connecting = false;
     }

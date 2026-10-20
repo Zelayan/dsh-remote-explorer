@@ -107,12 +107,21 @@ export function SshSessionPanel(props: SshSessionPanelProps): ReactNode {
     }
   };
 
+  /**
+   * 判断会话是否活跃（非终态）。
+   * 终态包括 disconnected（用户主动断开）与 reconnect-exhausted（连接失败或重连耗尽）。
+   */
+  const isActiveSession = (item: PanelSession): boolean => {
+    return item.connecting
+      || (item.state.tag !== 'disconnected' && item.state.tag !== 'reconnect-exhausted');
+  };
+
   // 有活跃会话（含连接中与外部视图）的主机集合：连接表单的「已连接」
   // 标记（combobox 浮层 + 按钮形态切换）共用同一判定
   const connectedHostAliases = React.useMemo(() => {
     const set = new Set<string>();
     for (const item of sessions) {
-      if (item.connecting || item.state.tag !== 'disconnected') set.add(item.hostAlias);
+      if (isActiveSession(item)) set.add(item.hostAlias);
     }
     return set;
   }, [sessions]);
@@ -130,7 +139,7 @@ export function SshSessionPanel(props: SshSessionPanelProps): ReactNode {
     const targets = sessions.filter(item =>
       item.hostAlias === hostAlias
       && item.external !== true
-      && (item.connecting || item.state.tag !== 'disconnected'));
+      && isActiveSession(item));
     if (targets.length === 0) {
       // 集合判定含外部会话：走到这里说明该主机的会话全由其他本机进程维持
       setLoadError(t('hostDisconnectExternal'));
