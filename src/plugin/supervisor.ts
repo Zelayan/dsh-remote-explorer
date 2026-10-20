@@ -516,9 +516,12 @@ export class SessionSupervisor {
       record.state = session.currentState;
       this.push(record, 'info', `会话就绪：http://127.0.0.1:${session.localPort}（远端 pid ${session.remotePid}）`);
     } catch (error) {
-      // 失败不留死记录：connecting 收尾、错误进日志与快照，用户可重试
-      record.connectError = toErrorMessage(error);
-      this.push(record, 'error', `连接失败：${record.connectError}`);
+      // 失败时记录错误并自动清理（避免留死记录）
+      const errorMsg = toErrorMessage(error);
+      this.push(record, 'error', `连接失败：${errorMsg}`);
+      // 自动从会话表中移除失败的记录（用户可从历史日志查看）
+      this.sessions.delete(record.sessionId);
+      log.info(`[Supervisor] 连接失败，已自动清理会话 ${record.sessionId.slice(0, 8)}…：${errorMsg}`);
     } finally {
       record.connecting = false;
     }

@@ -241,23 +241,19 @@ export class SshTransport implements RemoteTransport {
 
     // 2. 连接目标主机
     const client = new Client();
-    log.info(`[debug 20261020] 创建目标主机 Client: ${this.hostAlias}`);
 
     // 立即注册防御性监听器，防止底层异步 error 崩溃进程
     // （ssh2 的 Socket error 可能在 connectClient reject 之后才触发）
     const errorHandler = (err: Error) => {
-      log.warn(`[debug 20261020] 目标主机 ${this.hostAlias} Client error 事件（防御监听器）: ${err.message}`);
+      log.warn(`目标主机 ${this.hostAlias} Client error 事件（防御监听器）: ${err.message}`);
     };
     client.on('error', errorHandler);
 
     try {
-      log.info(`[debug 20261020] 开始 connectClient: ${this.hostAlias}`);
       await this.connectClient(client, this.resolved.target, sock, `主机 ${this.hostAlias}`);
-      log.info(`[debug 20261020] connectClient 成功: ${this.hostAlias}`);
       // 连接成功，移除防御监听器（后面会注册运行时监听器）
       client.off('error', errorHandler);
     } catch (error) {
-      log.error(`[debug 20261020] connectClient 失败: ${this.hostAlias}, ${toErrorMessage(error)}`);
       // 失败时保持防御监听器，确保底层异步 error 不会崩溃进程
       client.end();
       throw error;
@@ -732,28 +728,23 @@ export class SshTransport implements RemoteTransport {
    */
   private async buildJumpChain(signal?: AbortSignal): Promise<ClientChannel | undefined> {
     const chain = this.resolved.jumpHosts;
-    log.info(`[debug 20261020] buildJumpChain 开始，跳板链长度=${chain.length}`);
     if (chain.length === 0) return undefined;
 
     let sock: ClientChannel | undefined;
     for (const [index, jump] of chain.entries()) {
       signal?.throwIfAborted();
-      log.info(`[debug 20261020] 创建跳板机 ${index + 1} Client: ${jump.host}:${jump.port}`);
       const jumpClient = new Client();
 
       // 立即注册防御性监听器，防止底层异步 error 崩溃进程
       const errorHandler = (err: Error) => {
-        log.warn(`[debug 20261020] 跳板机 ${index + 1}（${jump.host}）Client error 事件（防御监听器）: ${err.message}`);
+        log.warn(`跳板机 ${index + 1}（${jump.host}）Client error 事件（防御监听器）: ${err.message}`);
       };
       jumpClient.on('error', errorHandler);
 
       try {
-        log.info(`[debug 20261020] 开始连接跳板机 ${index + 1}: ${jump.host}:${jump.port}`);
         await this.connectClient(jumpClient, jump, sock, `跳板机 ${index + 1}（${jump.host}:${jump.port}）`);
-        log.info(`[debug 20261020] 跳板机 ${index + 1} 连接成功`);
         // 连接成功，保留防御监听器（跳板机 Client 的整个生命周期都需要）
       } catch (error) {
-        log.error(`[debug 20261020] 跳板机 ${index + 1} 连接失败: ${toErrorMessage(error)}`);
         // 连接失败：保留防御监听器，确保底层异步 error 不会崩溃进程
         jumpClient.end();
         throw error;
@@ -763,18 +754,15 @@ export class SshTransport implements RemoteTransport {
       const next = chain[index + 1];
       const destHost = next?.host ?? this.resolved.target.host;
       const destPort = next?.port ?? this.resolved.target.port;
-      log.info(`[debug 20261020] 跳板机 ${index + 1} 开始 forwardOut 到 ${destHost}:${destPort}`);
       sock = await new Promise<ClientChannel>((resolve, reject) => {
         jumpClient.forwardOut('127.0.0.1', 0, destHost, destPort, (error, channel) => {
           if (error) {
-            log.error(`[debug 20261020] 跳板机 ${index + 1} forwardOut 失败: ${error.message}`);
             reject(new RemoteError(
               'CONNECT_FAILED',
               `跳板机 ${index + 1}（${jump.host}）转发到 ${destHost}:${destPort} 失败: ${error.message}`,
               { cause: error, hostAlias: this.hostAlias },
             ));
           } else {
-            log.info(`[debug 20261020] 跳板机 ${index + 1} forwardOut 成功`);
             resolve(channel);
           }
         });
