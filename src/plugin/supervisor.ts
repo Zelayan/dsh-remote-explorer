@@ -518,9 +518,10 @@ export class SessionSupervisor {
     } catch (error) {
       // 失败时记录错误，状态机进入终态，记录保留（让前端能看到错误日志与状态）
       const errorMsg = toErrorMessage(error);
+      record.connectError = errorMsg;
       this.push(record, 'error', `连接失败：${errorMsg}`);
       // 状态机进入终态 'reconnect-exhausted'（首次连接失败视为重连耗尽，不再尝试）
-      record.state = transition(record.state, { type: 'fail', error: errorMsg }, { maxMissedHeartbeats: 5, maxReconnectAttempts: 3 });
+      record.state = transition(record.state, { type: 'fail', error: errorMsg });
       log.info(`[Supervisor] 连接失败，会话进入终态 ${record.sessionId.slice(0, 8)}…：${errorMsg}`);
     } finally {
       record.connecting = false;

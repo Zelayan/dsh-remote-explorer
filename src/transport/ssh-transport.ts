@@ -791,54 +791,49 @@ export class SshTransport implements RemoteTransport {
     sock: ClientChannel | undefined,
     label: string,
   ): Promise<void> {
-    // 0. 防御性监听器：必须在任何可能触发连接的代码之前安装。
-    //    底层 socket 的 error 事件可能在 connect() 同步或异步触发，
-    //    若无监听器则未捕获异常直接掀翻进程（实测：跳板机网络不可达）
-    const defenseHandler = (): void => { /* 仅防未捕获异常，业务错误由 onError 处理 */ };
-    client.on('error', defenseHandler);
+    // 防御性 error 监听器由调用方（connect / buildJumpChain）在调用本方法前
+    // 注册——底层 socket 的 error 事件可能在 connectClient reject 之后才触发，
+    // 若无监听器则未捕获异常直接掀翻进程（实测：跳板机网络不可达）。
+    // 本方法内部的 onError 只负责连接阶段的业务错误。
 
-    try {
-      // 1. 私钥路径：有 IdentityFile 时行为与「只支持私钥」时期完全一致
-      let privateKey: Buffer | undefined;
-      if (host.identityFile) {
-        try {
-          privateKey = readFileSync(host.identityFile);
-        } catch (error) {
-          throw new RemoteError(
-            'HOST_CONFIG_INVALID',
-            `${label} 的私钥文件读取失败：${host.identityFile}（${toErrorMessage(error)}）`,
-            { cause: error, hostAlias: this.hostAlias },
-          );
-        }
-      } else if (host.password === undefined && this.getPassword === undefined) {
-        // 闸门（assertConnectable）通常已拦下；此处兜底未走闸门的直接调用方。
-        // 认证途径按优先级：IdentityFile > 条目固定密码（host.password，面板
-        // 跳板机条目携带）> getPassword provider（交互提示/面板表单）
+    // 1. 私钥路径：有 IdentityFile 时行为与「只支持私钥」时期完全一致
+    let privateKey: Buffer | undefined;
+    if (host.identityFile) {
+      try {
+        privateKey = readFileSync(host.identityFile);
+      } catch (error) {
         throw new RemoteError(
           'HOST_CONFIG_INVALID',
-          `${label} 缺少 IdentityFile，且未提供密码输入途径（需要交互式终端、--password 或跳板机条目密码）`,
-          { hostAlias: this.hostAlias },
+          `${label} 的私钥文件读取失败：${host.identityFile}（${toErrorMessage(error)}）`,
+          { cause: error, hostAlias: this.hostAlias },
         );
       }
+    } else if (host.password === undefined && this.getPassword === undefined) {
+      // 闸门（assertConnectable）通常已拦下；此处兜底未走闸门的直接调用方。
+      // 认证途径按优先级：IdentityFile > 条目固定密码（host.password，面板
+      // 跳板机条目携带）> getPassword provider（交互提示/面板表单）
+      throw new RemoteError(
+        'HOST_CONFIG_INVALID',
+        `${label} 缺少 IdentityFile，且未提供密码输入途径（需要交互式终端、--password 或跳板机条目密码）`,
+        { hostAlias: this.hostAlias },
+      );
+    }
 
-      // 2. 密码认证（仅无私钥时）：固定密码或 provider 任一可用即启用；
-      //    state 在单次 connectClient 内局部持有
-      const usePasswordAuth = privateKey === undefined
-        && (host.password !== undefined || this.getPassword !== undefined);
-      const auth: PasswordAuthState = { password: undefined, failures: 0, outcome: undefined };
-      const hostKey = `${host.username}@${host.host}:${host.port}`;
-      const authHandler = usePasswordAuth
-        ? this.createPasswordAuthHandler(host, hostKey, label, auth)
-        : undefined;
+    // 2. 密码认证（仅无私钥时）：固定密码或 provider 任一可用即启用；
+    //    state 在单次 connectClient 内局部持有
+    const usePasswordAuth = privateKey === undefined
+      && (host.password !== undefined || this.getPassword !== undefined);
+    const auth: PasswordAuthState = { password: undefined, failures: 0, outcome: undefined };
+    const hostKey = `${host.username}@${host.host}:${host.port}`;
+    const authHandler = usePasswordAuth
+      ? this.createPasswordAuthHandler(host, hostKey, label, auth)
+      : undefined;
 
-      await new Promise<void>((resolve, reject) => {
-        const cleanup = (): void => {
-          client.off('ready', onReady);
-          client.off('error', onError);
-          // 连接完成：移除防御性监听器，让外层运行时错误处理接管（connect
-          // 方法第 249 行的 markFailed）
-          client.off('error', defenseHandler);
-        };
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = (): void => {
+        client.off('ready', onReady);
+        client.off('error', onError);
+      };
       const onReady = (): void => { cleanup(); resolve(); };
       const onError = (error: Error): void => {
         cleanup();
@@ -867,10 +862,6 @@ export class SshTransport implements RemoteTransport {
         ...(sock ? { sock } : {}),
       });
     });
-    } finally {
-      // 确保防御性监听器一定被移除（正常路径由 cleanup() 处理，异常路径靠 finally）
-      client.off('error', defenseHandler);
-    }
   }
 
   /**
