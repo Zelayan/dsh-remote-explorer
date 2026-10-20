@@ -32,6 +32,7 @@ import {
 } from 'ssh2';
 import { RemoteError, toErrorMessage } from '../util/errors.js';
 import { quote } from '../util/shell-quote.js';
+import { createLogger } from '../util/logger.js';
 import { ChannelPool, type ChannelLease, type ChannelPoolConfig } from './channel-pool.js';
 import {
   COMMAND_PREVIEW_LEN,
@@ -157,6 +158,9 @@ export function isAuthFailure(error: unknown): boolean {
 /** 反向转发时远端必须监听的地址——绝不能对外暴露 */
 const REVERSE_BIND_ADDR = '127.0.0.1';
 
+/** ssh-transport 模块日志器 */
+const log = createLogger('ssh-transport');
+
 /**
  * 基于 ssh2 的远端传输。
  *
@@ -237,9 +241,24 @@ export class SshTransport implements RemoteTransport {
 
     // 2. 连接目标主机
     const client = new Client();
+    log.info(`[debug 20261020] 创建目标主机 Client: ${this.hostAlias}`);
+
+    // 立即注册防御性监听器，防止底层异步 error 崩溃进程
+    // （ssh2 的 Socket error 可能在 connectClient reject 之后才触发）
+    const errorHandler = (err: Error) => {
+      log.warn(`[debug 20261020] 目标主机 ${this.hostAlias} Client error 事件（防御监听器）: ${err.message}`);
+    };
+    client.on('error', errorHandler);
+
     try {
+      log.info(`[debug 20261020] 开始 connectClient: ${this.hostAlias}`);
       await this.connectClient(client, this.resolved.target, sock, `主机 ${this.hostAlias}`);
+      log.info(`[debug 20261020] connectClient 成功: ${this.hostAlias}`);
+      // 连接成功，移除防御监听器（后面会注册运行时监听器）
+      client.off('error', errorHandler);
     } catch (error) {
+      log.error(`[debug 20261020] connectClient 失败: ${this.hostAlias}, ${toErrorMessage(error)}`);
+      // 失败时保持防御监听器，确保底层异步 error 不会崩溃进程
       client.end();
       throw error;
     }
@@ -713,27 +732,49 @@ export class SshTransport implements RemoteTransport {
    */
   private async buildJumpChain(signal?: AbortSignal): Promise<ClientChannel | undefined> {
     const chain = this.resolved.jumpHosts;
+    log.info(`[debug 20261020] buildJumpChain 开始，跳板链长度=${chain.length}`);
     if (chain.length === 0) return undefined;
 
     let sock: ClientChannel | undefined;
     for (const [index, jump] of chain.entries()) {
       signal?.throwIfAborted();
+      log.info(`[debug 20261020] 创建跳板机 ${index + 1} Client: ${jump.host}:${jump.port}`);
       const jumpClient = new Client();
-      await this.connectClient(jumpClient, jump, sock, `跳板机 ${index + 1}（${jump.host}:${jump.port}）`);
+
+      // 立即注册防御性监听器，防止底层异步 error 崩溃进程
+      const errorHandler = (err: Error) => {
+        log.warn(`[debug 20261020] 跳板机 ${index + 1}（${jump.host}）Client error 事件（防御监听器）: ${err.message}`);
+      };
+      jumpClient.on('error', errorHandler);
+
+      try {
+        log.info(`[debug 20261020] 开始连接跳板机 ${index + 1}: ${jump.host}:${jump.port}`);
+        await this.connectClient(jumpClient, jump, sock, `跳板机 ${index + 1}（${jump.host}:${jump.port}）`);
+        log.info(`[debug 20261020] 跳板机 ${index + 1} 连接成功`);
+        // 连接成功，保留防御监听器（跳板机 Client 的整个生命周期都需要）
+      } catch (error) {
+        log.error(`[debug 20261020] 跳板机 ${index + 1} 连接失败: ${toErrorMessage(error)}`);
+        // 连接失败：保留防御监听器，确保底层异步 error 不会崩溃进程
+        jumpClient.end();
+        throw error;
+      }
       this.jumpClients.push(jumpClient);
 
       const next = chain[index + 1];
       const destHost = next?.host ?? this.resolved.target.host;
       const destPort = next?.port ?? this.resolved.target.port;
+      log.info(`[debug 20261020] 跳板机 ${index + 1} 开始 forwardOut 到 ${destHost}:${destPort}`);
       sock = await new Promise<ClientChannel>((resolve, reject) => {
         jumpClient.forwardOut('127.0.0.1', 0, destHost, destPort, (error, channel) => {
           if (error) {
+            log.error(`[debug 20261020] 跳板机 ${index + 1} forwardOut 失败: ${error.message}`);
             reject(new RemoteError(
               'CONNECT_FAILED',
               `跳板机 ${index + 1}（${jump.host}）转发到 ${destHost}:${destPort} 失败: ${error.message}`,
               { cause: error, hostAlias: this.hostAlias },
             ));
           } else {
+            log.info(`[debug 20261020] 跳板机 ${index + 1} forwardOut 成功`);
             resolve(channel);
           }
         });
@@ -762,44 +803,54 @@ export class SshTransport implements RemoteTransport {
     sock: ClientChannel | undefined,
     label: string,
   ): Promise<void> {
-    // 1. 私钥路径：有 IdentityFile 时行为与「只支持私钥」时期完全一致
-    let privateKey: Buffer | undefined;
-    if (host.identityFile) {
-      try {
-        privateKey = readFileSync(host.identityFile);
-      } catch (error) {
+    // 0. 防御性监听器：必须在任何可能触发连接的代码之前安装。
+    //    底层 socket 的 error 事件可能在 connect() 同步或异步触发，
+    //    若无监听器则未捕获异常直接掀翻进程（实测：跳板机网络不可达）
+    const defenseHandler = (): void => { /* 仅防未捕获异常，业务错误由 onError 处理 */ };
+    client.on('error', defenseHandler);
+
+    try {
+      // 1. 私钥路径：有 IdentityFile 时行为与「只支持私钥」时期完全一致
+      let privateKey: Buffer | undefined;
+      if (host.identityFile) {
+        try {
+          privateKey = readFileSync(host.identityFile);
+        } catch (error) {
+          throw new RemoteError(
+            'HOST_CONFIG_INVALID',
+            `${label} 的私钥文件读取失败：${host.identityFile}（${toErrorMessage(error)}）`,
+            { cause: error, hostAlias: this.hostAlias },
+          );
+        }
+      } else if (host.password === undefined && this.getPassword === undefined) {
+        // 闸门（assertConnectable）通常已拦下；此处兜底未走闸门的直接调用方。
+        // 认证途径按优先级：IdentityFile > 条目固定密码（host.password，面板
+        // 跳板机条目携带）> getPassword provider（交互提示/面板表单）
         throw new RemoteError(
           'HOST_CONFIG_INVALID',
-          `${label} 的私钥文件读取失败：${host.identityFile}（${toErrorMessage(error)}）`,
-          { cause: error, hostAlias: this.hostAlias },
+          `${label} 缺少 IdentityFile，且未提供密码输入途径（需要交互式终端、--password 或跳板机条目密码）`,
+          { hostAlias: this.hostAlias },
         );
       }
-    } else if (host.password === undefined && this.getPassword === undefined) {
-      // 闸门（assertConnectable）通常已拦下；此处兜底未走闸门的直接调用方。
-      // 认证途径按优先级：IdentityFile > 条目固定密码（host.password，面板
-      // 跳板机条目携带）> getPassword provider（交互提示/面板表单）
-      throw new RemoteError(
-        'HOST_CONFIG_INVALID',
-        `${label} 缺少 IdentityFile，且未提供密码输入途径（需要交互式终端、--password 或跳板机条目密码）`,
-        { hostAlias: this.hostAlias },
-      );
-    }
 
-    // 2. 密码认证（仅无私钥时）：固定密码或 provider 任一可用即启用；
-    //    state 在单次 connectClient 内局部持有
-    const usePasswordAuth = privateKey === undefined
-      && (host.password !== undefined || this.getPassword !== undefined);
-    const auth: PasswordAuthState = { password: undefined, failures: 0, outcome: undefined };
-    const hostKey = `${host.username}@${host.host}:${host.port}`;
-    const authHandler = usePasswordAuth
-      ? this.createPasswordAuthHandler(host, hostKey, label, auth)
-      : undefined;
+      // 2. 密码认证（仅无私钥时）：固定密码或 provider 任一可用即启用；
+      //    state 在单次 connectClient 内局部持有
+      const usePasswordAuth = privateKey === undefined
+        && (host.password !== undefined || this.getPassword !== undefined);
+      const auth: PasswordAuthState = { password: undefined, failures: 0, outcome: undefined };
+      const hostKey = `${host.username}@${host.host}:${host.port}`;
+      const authHandler = usePasswordAuth
+        ? this.createPasswordAuthHandler(host, hostKey, label, auth)
+        : undefined;
 
-    await new Promise<void>((resolve, reject) => {
-      const cleanup = (): void => {
-        client.off('ready', onReady);
-        client.off('error', onError);
-      };
+      await new Promise<void>((resolve, reject) => {
+        const cleanup = (): void => {
+          client.off('ready', onReady);
+          client.off('error', onError);
+          // 连接完成：移除防御性监听器，让外层运行时错误处理接管（connect
+          // 方法第 249 行的 markFailed）
+          client.off('error', defenseHandler);
+        };
       const onReady = (): void => { cleanup(); resolve(); };
       const onError = (error: Error): void => {
         cleanup();
@@ -828,6 +879,10 @@ export class SshTransport implements RemoteTransport {
         ...(sock ? { sock } : {}),
       });
     });
+    } finally {
+      // 确保防御性监听器一定被移除（正常路径由 cleanup() 处理，异常路径靠 finally）
+      client.off('error', defenseHandler);
+    }
   }
 
   /**
