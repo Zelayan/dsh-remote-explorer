@@ -32,6 +32,7 @@ import {
 } from 'ssh2';
 import { RemoteError, toErrorMessage } from '../util/errors.js';
 import { quote } from '../util/shell-quote.js';
+import { createLogger } from '../util/logger.js';
 import { ChannelPool, type ChannelLease, type ChannelPoolConfig } from './channel-pool.js';
 import {
   COMMAND_PREVIEW_LEN,
@@ -157,6 +158,9 @@ export function isAuthFailure(error: unknown): boolean {
 /** 反向转发时远端必须监听的地址——绝不能对外暴露 */
 const REVERSE_BIND_ADDR = '127.0.0.1';
 
+/** ssh-transport 模块日志器 */
+const log = createLogger('ssh-transport');
+
 /**
  * 基于 ssh2 的远端传输。
  *
@@ -237,9 +241,20 @@ export class SshTransport implements RemoteTransport {
 
     // 2. 连接目标主机
     const client = new Client();
+
+    // 立即注册防御性监听器，防止底层异步 error 崩溃进程
+    // （ssh2 的 Socket error 可能在 connectClient reject 之后才触发）
+    const errorHandler = (err: Error) => {
+      log.warn(`目标主机 ${this.hostAlias} Client error 事件（防御监听器）: ${err.message}`);
+    };
+    client.on('error', errorHandler);
+
     try {
       await this.connectClient(client, this.resolved.target, sock, `主机 ${this.hostAlias}`);
+      // 连接成功，移除防御监听器（后面会注册运行时监听器）
+      client.off('error', errorHandler);
     } catch (error) {
+      // 失败时保持防御监听器，确保底层异步 error 不会崩溃进程
       client.end();
       throw error;
     }
@@ -719,7 +734,21 @@ export class SshTransport implements RemoteTransport {
     for (const [index, jump] of chain.entries()) {
       signal?.throwIfAborted();
       const jumpClient = new Client();
-      await this.connectClient(jumpClient, jump, sock, `跳板机 ${index + 1}（${jump.host}:${jump.port}）`);
+
+      // 立即注册防御性监听器，防止底层异步 error 崩溃进程
+      const errorHandler = (err: Error) => {
+        log.warn(`跳板机 ${index + 1}（${jump.host}）Client error 事件（防御监听器）: ${err.message}`);
+      };
+      jumpClient.on('error', errorHandler);
+
+      try {
+        await this.connectClient(jumpClient, jump, sock, `跳板机 ${index + 1}（${jump.host}:${jump.port}）`);
+        // 连接成功，保留防御监听器（跳板机 Client 的整个生命周期都需要）
+      } catch (error) {
+        // 连接失败：保留防御监听器，确保底层异步 error 不会崩溃进程
+        jumpClient.end();
+        throw error;
+      }
       this.jumpClients.push(jumpClient);
 
       const next = chain[index + 1];
@@ -762,6 +791,11 @@ export class SshTransport implements RemoteTransport {
     sock: ClientChannel | undefined,
     label: string,
   ): Promise<void> {
+    // 防御性 error 监听器由调用方（connect / buildJumpChain）在调用本方法前
+    // 注册——底层 socket 的 error 事件可能在 connectClient reject 之后才触发，
+    // 若无监听器则未捕获异常直接掀翻进程（实测：跳板机网络不可达）。
+    // 本方法内部的 onError 只负责连接阶段的业务错误。
+
     // 1. 私钥路径：有 IdentityFile 时行为与「只支持私钥」时期完全一致
     let privateKey: Buffer | undefined;
     if (host.identityFile) {
