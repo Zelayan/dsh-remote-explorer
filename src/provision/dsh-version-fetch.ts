@@ -2,7 +2,7 @@
  * @file 本机 dsh 版本探测
  * @description 在 dsh 宿主进程（本机）直接 HTTP 查询 npm registry，拉取
  *              `@deepseek-ai/dsh` 的已发布版本列表，供面板版本下拉框填充。
- *              与 dsh-installer.ts 的 {@link resolveLatestDshVersion} 不同：
+ *              与 dsh-installer.ts 的 {@link resolveDshCandidates} 不同：
  *              那条路径在**远端**跑 `npm view`（安装期决策，有远端传输上下文）；
  *              本模块只在本机用 Node 原生 `fetch` 查 registry，不依赖任何远端
  *              传输——面板路由跑在 dsh 宿主进程里，没有 SSH 通道可用。
@@ -16,12 +16,13 @@
  *   不抛错；面板降级为空 datalist（用户仍可手动输入任意版本）
  * - 门槛过滤：只保留 major.minor >= 0.2.0 的版本（0.1.x 及更早不显示，
  *   避免用户选到已知有问题的旧版本）
- * - 复用 dsh-installer 的 semver 纯函数（parseSemver / compareSemver），
- *   保持版本解析逻辑单一定义
+ * - 复用 dsh-installer 的 semver 纯函数（parseSemver / compareSemver）与
+ *   默认版本策略（{@link selectDefaultDshVersion}），保持版本解析逻辑单一定义；
+ *   面板 `latest` 与安装默认同源（候选序列首项），不会各算各的
  */
 
 import { createLogger } from '../util/logger.js';
-import { compareSemver, parseSemver, type SemverParts } from './dsh-installer.js';
+import { compareSemver, parseSemver, selectDefaultDshVersion, type SemverParts } from './dsh-installer.js';
 import { getCandidates } from './mirror-selector.js';
 import { raceMirrors } from './local-mirror-race.js';
 
@@ -59,7 +60,7 @@ const PACKAGE_NAME = '@deepseek-ai/dsh';
 export interface DshVersionList {
   /** 可用版本列表（major.minor >= 0.2.0，按 semver 降序排列，最新在前） */
   versions: string[];
-  /** 最新版本（列表非空时为 versions[0]，即 semver 最大值；列表空时 undefined） */
+  /** 默认版本（最大稳定版，无稳定版时最新 rc；列表空时 undefined）。与安装默认同源 */
   latest?: string;
 }
 
@@ -125,11 +126,15 @@ function filterAndSortVersions(versionsField: unknown): string[] {
  * URL），提取 versions 键名，过滤掉低于 0.2.0 的版本，按 semver 降序排列。
  * 进程内缓存（5 分钟 TTL）避免面板每次打开都打 registry。
  *
+ * `latest` 用与安装默认同源的「最大稳定版（无则最新 rc）」策略
+ * （{@link selectDefaultDshVersion}），而非全量最大值——下拉列表仍列出全部
+ * 版本供用户手动选择（含 alpha），但默认值不会落到 alpha。
+ *
  * **降级语义**：registry 不可达、超时、返回非 JSON、解析失败——一律返回
  * `{ versions: [], latest: undefined }`，不抛错。面板降级为空 datalist，
  * 用户仍可手动输入任意版本号（如 dist-tag `next` 或自定义版本）。
  *
- * @returns 版本列表与最新版本号；探测失败返回空列表
+ * @returns 版本列表与默认版本号；探测失败返回空列表
  */
 export async function fetchDshVersions(): Promise<DshVersionList> {
   // 1. 缓存命中：未过期直接复用
@@ -153,9 +158,8 @@ export async function fetchDshVersions(): Promise<DshVersionList> {
   }
   const versions = filterAndSortVersions((packument as Record<string, unknown>).versions);
 
-  // latest 取过滤后降序列表的首项（filterAndSortVersions 已按 semver 降序排列，
-  // versions[0] 即为最大值，无需二次遍历解析）
-  const latest = versions.length > 0 ? versions[0] : undefined;
+  // latest 与安装默认同源：最大稳定版（无稳定版时最新 rc），而非 versions[0]
+  const latest = selectDefaultDshVersion(versions);
   const result: DshVersionList = {
     versions,
     ...(latest !== undefined ? { latest } : {}),

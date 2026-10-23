@@ -48,10 +48,12 @@ export interface ProbeResult {
   homeDir: string;
   /** 基础命令可用情况 */
   tools: RemoteTools;
-  /** 已由本工具安装的 Node 列表（`~/.dsh-remote-explorer/btsd321/node/` 下） */
+  /** 已由本工具安装的 Node 列表（`base/node/` 下，按版本隔离） */
   managedNodes: InstalledRuntime[];
-  /** 已由本工具安装的 dsh 列表（`~/.dsh-remote-explorer/btsd321/versions/` 下） */
+  /** 已由本工具安装的 dsh 列表（`base/node_modules/` 下，单一安装点） */
   managedDsh: InstalledRuntime[];
+  /** dsh 入口存在但 `dsh --version` 探测失败（损坏或半成品）；引导会删除重装 */
+  dshPresentButUnusable: boolean;
   /** 家目录所在文件系统的可用空间（字节）；取不到为 undefined */
   availableBytes?: number;
 }
@@ -115,7 +117,10 @@ export async function probeRemote(
     'printf "HOME=%s\\n" "$HOME"',
     'for c in curl wget tar xz; do command -v $c >/dev/null 2>&1 && printf "TOOL=%s\\n" "$c"; done',
     `for d in ${base}/node/*/bin/node; do [ -x "$d" ] && printf "NODE=%s %s\\n" "$d" "$($d -v 2>/dev/null)"; done`,
-    `for d in ${base}/versions/*/node_modules/.bin/dsh; do [ -e "$d" ] && printf "DSHBIN=%s\\n" "$d"; done`,
+    // dsh 是单一安装点（base/node_modules/.bin/dsh，不再按版本分目录）：
+    // 先标记入口存在，再跑 `dsh --version` 取版本（先加任一已装 Node 到 PATH）
+    `nd=$(ls -d ${base}/node/*/bin/node 2>/dev/null | head -n1); [ -n "$nd" ] && PATH="$(dirname "$nd"):$PATH"`,
+    `if [ -x ${base}/node_modules/.bin/dsh ]; then printf "DSHBIN=%s\\n" "${base}/node_modules/.bin/dsh"; dsh_ver=$(${base}/node_modules/.bin/dsh --version 2>/dev/null | head -n1); [ -n "$dsh_ver" ] && printf "DSH=%s\\n" "$dsh_ver"; fi`,
     `df -Pk "$HOME" 2>/dev/null | awk 'NR==2 {printf "AVAIL=%s\\n", $4}'`,
   ].join('; ');
 
@@ -148,18 +153,10 @@ export async function probeRemote(
     );
   }
 
-  const managedNodes: InstalledRuntime[] = [];
-  for (const line of collect(result.stdout, 'NODE=')) {
-    const [path = '', version = ''] = line.split(' ');
-    if (path && version) managedNodes.push({ path, version });
-  }
-
-  // dsh 版本从目录名解析（`versions/dsh-<版本>/`），不额外起进程去问
-  const managedDsh: InstalledRuntime[] = [];
-  for (const path of collect(result.stdout, 'DSHBIN=')) {
-    const match = /\/versions\/dsh-([^/]+)\//.exec(path);
-    if (match?.[1]) managedDsh.push({ path, version: match[1] });
-  }
+  const { nodes: managedNodes, dsh: managedDsh, dshPresentButUnusable } = parseInstalledRuntimes(
+    result.stdout,
+    homeDir,
+  );
 
   const availRaw = parseFirst(result.stdout, 'AVAIL=');
   // df -Pk 输出的是 1K 块数
@@ -171,6 +168,7 @@ export async function probeRemote(
     tools,
     managedNodes,
     managedDsh,
+    dshPresentButUnusable,
     ...(availableBytes !== undefined && Number.isFinite(availableBytes) ? { availableBytes } : {}),
   };
 }
@@ -259,6 +257,43 @@ export function assertNodeStable(
       + '继续引导会导致 npm install 失败。请改用其他 Node 版本（已知 v24 系稳定）',
     { hostAlias },
   );
+}
+
+/**
+ * 从探测脚本输出中解析已装运行时（纯函数，无 IO，便于单测）。
+ *
+ * 探测脚本的约定行：
+ * - `NODE=<路径> <版本>`：Node 版本由 `node -v` 直接得出，路径即 bin/node；
+ * - `DSHBIN=<路径>`：dsh 入口文件存在（损坏/半成品时也会输出，用于区分
+ *   「未安装」与「安装了但跑不起来」）；
+ * - `DSH=<版本>`：`dsh --version` 探测成功时才输出，dsh 入口路径按安装布局
+ *   推断（不再额外输出——dsh 是 `base/node_modules/.bin/dsh` 的单一安装点）。
+ *
+ * @param output - 探测脚本的 stdout
+ * @param homeDir - 远端家目录绝对路径（推断 dsh 入口路径用）
+ * @returns 已装 Node 列表、可用 dsh 列表、以及「dsh 存在但不可用」标记
+ */
+export function parseInstalledRuntimes(
+  output: string,
+  homeDir: string,
+): { nodes: InstalledRuntime[]; dsh: InstalledRuntime[]; dshPresentButUnusable: boolean } {
+  const nodes: InstalledRuntime[] = [];
+  for (const line of collect(output, 'NODE=')) {
+    const [path = '', version = ''] = line.split(' ');
+    if (path && version) nodes.push({ path, version });
+  }
+
+  const dsh: InstalledRuntime[] = [];
+  const dshVersion = parseFirst(output, 'DSH=');
+  if (dshVersion !== undefined && dshVersion !== '') {
+    dsh.push({
+      path: `${homeDir}/${BASE_DIR_NAME}/node_modules/.bin/dsh`,
+      version: dshVersion,
+    });
+  }
+  // 入口存在但拿不到版本 = 损坏/半成品：引导会删除重装，doctor 单独提示
+  const dshPresentButUnusable = parseFirst(output, 'DSHBIN=') !== undefined && dsh.length === 0;
+  return { nodes, dsh, dshPresentButUnusable };
 }
 
 /**
