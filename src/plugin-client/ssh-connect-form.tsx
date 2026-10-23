@@ -233,7 +233,7 @@ export function SshConnectForm(props: SshConnectFormProps): ReactNode {
           <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <span style={{ fontSize: 12, opacity: 0.75 }}>{t('nodeVersion')}</span>
             <VersionPicker value={nodeVersion} onChange={setNodeVersion}
-              versions={nodeVersions} placeholder="v24.21.0" />
+              versions={nodeVersions} placeholder="v24 最新稳定版（留空默认）" />
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <span style={{ fontSize: 12, opacity: 0.75 }}>{t('dshVersion')}</span>

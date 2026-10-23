@@ -4,11 +4,14 @@
  *              装完立即做稳定性自检。下载走镜像候选链（{@link nodeMirrorChain}）：
  *              单一镜像失败自动换下一源，全部镜像与官方源都失败才报错。
  *
- * 版本策略（决策 10）：默认锁定 v24 系。P0 实测 v22.23.2 在 aarch64 上起进程
+ * 版本策略（决策 10）：默认安装 Node 24 LTS（Krypton）的最新稳定版，
+ * 不再 pin 具体版本号。P0 实测 v22.23.2 在 aarch64 上起进程
  * 崩溃率 35%（V8 初始化 isolate 随机失败，报 OOM 但机器内存充足），
  * 而 v24.11.1 在同一台机器上 0/60 失败。dsh 的 engines 是
  * `^22.19.0 || >=24.0.0`，v24 在范围内。默认跟随 Node 24 LTS（Krypton）
- * 最新版，当前为 v24.21.0。
+ * 的最新稳定版——具体版本号由引导期解析发行站得到（见
+ * node-version-fetch.ts 的 {@link fetchLatestNodeStableVersion}），
+ * 解析失败或严格离线时回退到 {@link DEFAULT_NODE_VERSION} 兜底。
  *
  * 目录隔离：每个版本装到 `~/.dsh-remote-explorer/btsd321/node/<版本>/`，多版本并存。
  * 升级时不覆盖旧版本，避免「运行中的进程占着文件」这类故障。
@@ -27,10 +30,12 @@ import type { RemoteArch, RemoteOs, RemoteTransport } from '../transport/types.j
 const log = createLogger('node-installer');
 
 /**
- * 默认安装的 Node 版本。
+ * Node 版本兜底地板（严格离线或在线解析失败时使用）。
  *
- * 跟随 Node 24 LTS（Krypton）最新版。P0 实测 v24.11.1 在 aarch64 上 0/60
- * 失败，v24 系已验证稳定。用户可用 `--node-version` 覆盖。
+ * 在线默认策略已不 pin 具体版本号：引导期解析 Node 24 最新稳定版
+ * （node-version-fetch.ts 的 {@link fetchLatestNodeStableVersion}）。
+ * 这里保留一个具体版本仅作降级——严格离线无法查询发行站，直接用固定版本；
+ * 在线解析失败时也用它兜底。用户可用 `--node-version` 覆盖。
  */
 export const DEFAULT_NODE_VERSION = 'v24.21.0';
 

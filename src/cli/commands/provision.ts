@@ -14,7 +14,6 @@ import { WslTransport } from '../../transport/wsl-transport.js';
 import type { RemoteTransport } from '../../transport/types.js';
 import type { TransportType } from '../../session/options.js';
 import { provision } from '../../provision/provisioner.js';
-import { DEFAULT_NODE_VERSION } from '../../provision/node-installer.js';
 import { computeSessionId } from '../../util/session-id.js';
 import { prepareHostAuth } from '../host-auth.js';
 import { bold, cyan, dim, green, println, printTable, ProgressReporter } from '../output.js';
@@ -127,13 +126,14 @@ export async function runProvision(options: ProvisionCommandOptions): Promise<nu
 /**
  * 供 help 文本引用的默认版本说明。
  *
- * dsh 不再 pin 具体版本：默认在引导期解析 registry 已发布版本的最大值
- * （dist-tag `latest` 实测滞后），解析失败由 provisioner 回退兜底地板
- * （内部维护，不在 help 里展示）。返回的 dsh 字段是给 help 文本的
- * 显示标记，不是版本号。
+ * Node 不再 pin 具体版本号：默认在引导期解析 Node 24 LTS 的最新稳定版
+ * （发行站 index.json），解析失败回退兜底版本（内部维护，不在 help 里展示）。
+ * dsh 同样不 pin 具体版本：默认解析 registry 已发布版本的最大值
+ * （dist-tag `latest` 实测滞后），解析失败由 provisioner 回退兜底地板。
+ * 返回的两个字段都是给 help 文本的显示标记，不是版本号。
  *
  * @returns 默认 Node 版本与 dsh 默认策略说明
  */
 export function defaultVersions(): { node: string; dsh: string } {
-  return { node: DEFAULT_NODE_VERSION, dsh: '解析最新已发布版本' };
+  return { node: 'Node 24 最新稳定版', dsh: '解析最新已发布版本' };
 }
