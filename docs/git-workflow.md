@@ -48,6 +48,9 @@
 3. merge 后立即删除本地特性分支
 4. 特性分支**不直接 merge 到 master**
 5. 特性分支之间**不互相 merge**——如有依赖，先合并上游分支到 develop，再从 develop rebase
+6. **特性分支不 push 到远程**：特性分支是临时工作区，只在**本地**创建、提交、merge；merge 回 `develop` 后本地立即删除（`git branch -d`）。合并到 `develop` 的提交才是真正进入共享历史的东西——远程只需要 `develop`/`master`/tag 三类引用，特性分支推上去只会造成分支堆积与「幽灵分支」（本地已删、远程还在，后来的 clone 会困惑）
+
+> 远程只保留长期分支 `develop`/`master` 与版本 tag。特性分支若确需远端可见（如走 PR 评审），也**不**作为本仓库的常规流程——本仓库的 merge 由 Lead 在本地执行，见 1.3 与第三节。
 
 ### 1.3 AI Agent 分支约定
 
@@ -58,6 +61,7 @@ AI agent 在本仓库工作时，除遵循上述规则外，还需注意：
 3. **agent 不自行 merge 到 develop/master**：agent 完成工作后提交到特性分支，由 Lead 审核并执行 merge
 4. **agent 不做反向 merge**：如果 agent 需要同步其他分支的改动，应通知 Lead 处理
 5. **特性分支命名加编号**：便于追踪，如 `refactor/smell-1-transport-platform`
+6. **agent 不 push 特性分支到远程**：特性分支只在本地流转——创建、提交、merge 回 `develop`、删除。推送是 Lead 的职责，且本仓库不把特性分支留在远程（见 1.2 规则 6）。agent 需要远程可见时报告给 Lead，由 Lead 决定是否推送
 
 ### 1.4 git worktree 与 Agent 团队协作
 
@@ -289,6 +293,7 @@ AI agent 在本仓库执行代码变更时，按以下清单自检：
 - [ ] 向 Lead 报告完成状态、commit hash、验证结果
 - [ ] **不自行 merge 到 develop 或 master**
 - [ ] **不做 master → develop 的反向 merge**
+- [ ] **不 push 特性分支到远程**——特性分支只在本地流转，见 1.2 规则 6 与禁止事项
 - [ ] **Agent 团队协作时**：报告 worktree 路径，由 Lead 负责合并后清理 worktree（不自行删除 worktree）
 
 ---
@@ -301,6 +306,7 @@ AI agent 在本仓库执行代码变更时，按以下清单自检：
 | 从 master 创建特性分支 | 特性分支只能从 develop 创建；master 仅用于发布合并 |
 | master → develop 的 merge | 破坏单向合并规则，产生混乱历史 |
 | 特性分支之间互相 merge | 应通过 develop 中转 |
+| **push 特性分支到远程** | 特性分支是本地临时工作区，远程只保留 develop/master/tag；推送会造成分支堆积与「幽灵分支」，见 1.2 规则 6 |
 | **Agent 团队协作时在共享工作区切换分支** | 共享工作区切分支会改变所有 agent 看到的文件，必须用 git worktree 隔离 |
 | **worktree 创建到仓库外部目录** | 仓库同级目录可能因权限不足导致 `git worktree add` 失败；worktree 必须放在仓库内部 `.worktrees/` 目录下 |
 | **worktree 未清理残留** | 合并回 develop 后 Lead 必须立即 `git worktree remove` |
