@@ -65,6 +65,8 @@
 
 **18. Node 下载必须走镜像候选链：测速选中 ≠ 该镜像有这个版本的文件。** 实测（0.7.x）：清华 nodejs-release 镜像**缺 v24.21.0 整个版本目录**（下载 404），而它对基址 `index.json` 正常响应——测速照常把它选为最快镜像，安装却必然失败。测速探的是镜像基址，不校验具体版本文件的存在性；镜像同步缺口是持续性风险（这次缺的是整个版本目录，不是单个文件）。修复语义（用户拍板）：单一镜像失败自动换下一源，**全部镜像与官方源都失败才报错**——[node-installer.ts](../src/provision/node-installer.ts) 的 `nodeMirrorChain` 按「首选镜像（测速/缓存选中）→ 其余镜像（候选列表序）→ 官方源垫底」构造去重候选链，逐源 `curl -fL` 下载，单源失败 log.warn 留痕（地址 + 原因）换下一源，成功时若发生过回退会 log.info 记录最终命中的源；全败才汇总各源失败原因上抛。两个实现细节：curl 加 `--connect-timeout 15`——不可达源在连接期 15 秒内失败，不吃满 10 分钟下载超时（链式重试的最大成本必须由快速失败兜住）；`mirrorBaseUrl` 为空（调用方跳过了测速）不再报错，直接用默认候选链自愈重装（原语义是「探测已装但二进制损坏」的显式报错，改为 warn + 重装更实用）。
 
+**19. 引导默认 Node 版本不再 pin 具体版本号：解析 Node 24 LTS 最新稳定版 + 解析失败回退兜底地板。** 早期默认把 `DEFAULT_NODE_VERSION` 钉死（v24.21.0），新 Node 24 补丁版发布后引导仍装旧版。默认策略改为：在线引导时由 [node-version-fetch.ts](../src/provision/node-version-fetch.ts) 的 `fetchLatestNodeStableVersion` 在 Node 24 系里按 semver 取**非预发布**的最大版本——复用面板版本探测的镜像竞速、5 分钟缓存与降级语义，纯函数 `selectLatestStableVersion` 只保留 major 匹配且 prerelease 为空的条目（排除 `-rc`/`-alpha`），且「最新 stable」不等于「最新发布」。解析失败（发行站不可达、返回脏数据、无命中）或严格离线时**不中断引导**：log.warn + 回退兜底地板 `DEFAULT_NODE_VERSION`（[node-installer.ts](../src/provision/node-installer.ts) 维护），断网机器与离线包仍能命中已装版本复用。适用范围注意：新策略只对**在线引导**生效；离线导出/导入与离线插件打包仍 pin 具体版本（离线包必须精确版本号，见 offline-bundle.ts），`--node-version` 显式指定始终优先。
+
 ## 隧道与网络
 
 **8b. 本机监听器必须跨重连存活。** 重连时只换传输引用（`LocalForward.swapTransport`），本机端口不变——端口一变，用户已打开的浏览器标签全部失效。这正是传输接口提供 `openChannel`（只开一条通道）而非 `forwardOut`（本机监听 + 转发一体）的原因：监听器归 [src/tunnel/forward-local.ts](../src/tunnel/forward-local.ts) 持有，传输实例可以被替换。

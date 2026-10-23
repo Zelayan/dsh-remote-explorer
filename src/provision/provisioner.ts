@@ -14,6 +14,7 @@ import { inspectOfflineRuntime, isOfflineMode } from './offline-runtime.js';
 import { assertDiskSpace, probeRemote, type ProbeResult } from './probe.js';
 import { selectMirror } from './mirror-selector.js';
 import { DEFAULT_NODE_VERSION, ensureNode, type NodeInstallResult } from './node-installer.js';
+import { DEFAULT_NODE_MAJOR, fetchLatestNodeStableVersion } from './node-version-fetch.js';
 import { ensureDsh, resolveDshVersion, resolveLatestDshVersion, type DshInstallResult } from './dsh-installer.js';
 import { ensurePnpm } from './pnpm-installer.js';
 import { ensurePnpmProfileSettings } from './pnpm-profile.js';
@@ -33,7 +34,7 @@ export interface ProvisionOptions {
   offline?: boolean;
   /** 会话 id */
   sessionId: string;
-  /** 目标 Node 版本；省略用已验证稳定的默认值 */
+  /** 目标 Node 版本；省略时在线解析 Node 24 最新稳定版、离线用兜底地板 */
   nodeVersion?: string;
   /**
    * 目标 dsh 版本或 dist-tag。
@@ -110,7 +111,37 @@ export async function provision(
   const ctx: RemoteContext = { transport, paths };
   options.onStageDone?.(`${probe.platform.os}/${probe.platform.arch}`);
 
-  const nodeVersion = options.nodeVersion ?? DEFAULT_NODE_VERSION;
+  // 严格离线模式不能查询发行站：直接用用户指定版本或兜底地板
+  // （离线包内的 Node 是固定版本）。在线默认不 pin 具体版本号：解析
+  // Node 24 LTS 最新稳定版（发行站 index.json，带镜像竞速与缓存），
+  // 解析失败回退兜底地板，不中断引导。
+  let nodeVersion: string;
+  if (offline) {
+    nodeVersion = options.nodeVersion ?? DEFAULT_NODE_VERSION;
+  } else if (options.nodeVersion !== undefined) {
+    nodeVersion = options.nodeVersion;
+  } else {
+    options.onStageStart?.(`解析 Node ${DEFAULT_NODE_MAJOR} 最新稳定版`);
+    try {
+      const resolved = await fetchLatestNodeStableVersion(DEFAULT_NODE_MAJOR);
+      if (resolved !== undefined) {
+        nodeVersion = resolved;
+        options.onStageDone?.(`Node ${DEFAULT_NODE_MAJOR} 最新稳定版 ${resolved}`);
+      } else {
+        throw new Error('发行站未返回可用的稳定版');
+      }
+    } catch (error) {
+      // 用户主动取消不是「解析失败」，照常上抛
+      if (signal?.aborted) throw error;
+      nodeVersion = DEFAULT_NODE_VERSION;
+      log.warn(`Node ${DEFAULT_NODE_MAJOR} 最新稳定版解析失败，回退兜底 ${DEFAULT_NODE_VERSION}`, {
+        hostAlias: transport.hostAlias,
+        error: toErrorMessage(error),
+      });
+      options.onStageDone?.(`解析失败，回退兜底 ${DEFAULT_NODE_VERSION}`);
+    }
+  }
+
   if (offline) {
     if (options.refreshMirrors) throw new Error('严格离线模式不能与 refreshMirrors 同时使用');
     options.onStageStart?.('严格离线校验运行时（不查询、不下载）');

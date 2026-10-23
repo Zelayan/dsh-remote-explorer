@@ -110,7 +110,7 @@ function printHelp(): void {
   println(dim('  会提示输入密码（不回显，只存内存不落盘）。--password 以明文暴露在命令行、'));
   println(dim('  进程列表与 shell 历史中，有泄露风险，建议仅作临时手段。'));
   println(dim('  WSL 模式不需要 SSH 认证（--private-key/--password 与 --wsl 互斥）。'));
-  println(dim(`  远端 Node 默认锁定 ${versions.node}：v22 在 aarch64 上起进程崩溃率高，会导致安装失败。`));
+  println(dim(`  远端 Node 默认安装 ${versions.node}：v22 在 aarch64 上起进程崩溃率高，会导致安装失败。`));
 }
 
 /**
