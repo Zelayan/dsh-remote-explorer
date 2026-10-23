@@ -1,24 +1,27 @@
 /**
  * @file 远端 dsh 安装
- * @description 在远端用 npm 安装 `@deepseek-ai/dsh` 到版本隔离的目录。
+ * @description 在远端用 npm 安装 `@deepseek-ai/dsh` 到 `DSH_HOME`（base）下的
+ *              `node_modules`——dsh 是**单一安装点**，版本不符或损坏时清空安装树
+ *              原地重装，不按版本分目录（与 Node 的多版本隔离相反）。装前由
+ *              {@link selectMirror} 测出最快的 registry。
  *
- * 主路径是**远端自装**（决策 3）：远端自己 `npm install`，装前由
- * {@link selectMirror} 测出最快的 registry。本地打包上传作为显式可选回退
- * （`--upload-fallback`，默认关闭），因为完全离线的远端是真实存在的场景——
- * Zed 与 VS Code 都保留了这条回退路径。
+ * 主路径是**远端自装**（决策 3）：远端自己 `npm install`。本地打包上传作为显式
+ * 可选回退（`--upload-fallback`，默认关闭），因为完全离线的远端是真实存在的
+ * 场景——Zed 与 VS Code 都保留了这条回退路径。
  *
  * 三个必须显式处理的点（1、2 为 P0 实测，3 为隔离要求）：
  *
- * 1. **版本号必须显式指定。** `@deepseek-ai/dsh` 的 dist-tags 是
- *    `latest: 0.1.5-rc.2`、`rc: 0.1.7-rc.2`——装 `latest` 会拿到比
- *    预期更旧的版本，不能依赖默认标签。（此为 P0 实测的历史结论；
- *    二次实测发现 dist-tag `latest` 持续滞后——`latest` 停在 0.1.7-rc.2
- *    时已发布版本的最大值已是 0.2.0-rc.2，见 lessons 6c——故默认策略
- *    已改为「已发布版本最大值」：未显式指定版本时由
- *    {@link resolveLatestDshVersion} 拉 registry 版本列表取最大，
- *    解析失败由 provisioner 回退兜底地板。显式传版本号或标签
- *    （`--dsh-version 0.2.0-rc.2` / `--dsh-version next`）仍可用，
- *    安装命令里依旧绝不出现标签。）
+ * 1. **版本号必须显式指定，默认取「最大稳定版（无则最新 rc）」，且首选装不上时沿候选链退到次新。**
+ *    `@deepseek-ai/dsh` 的 dist-tags 是 `latest: 0.1.5-rc.2`、`rc: 0.1.7-rc.2`——装
+ *    `latest` 会拿到比预期更旧的版本，不能依赖默认标签。（此为 P0 实测的历史结论；
+ *    二次实测发现 dist-tag `latest` 持续滞后——`latest` 停在 0.1.7-rc.2 时已发布
+ *    版本的最大值已是 0.2.0-rc.2，见 lessons 6c——故默认策略已改为「最大稳定版」：
+ *    未显式指定版本时由 {@link resolveDshCandidates} 拉 registry 版本列表，经
+ *    {@link selectDshCandidates} 分层排序（稳定版降序在前、rc 降序在后，
+ *    `alpha` 一律不选），首项即首选。首选 npm install 失败或装后版本不符时，
+ *    {@link ensureDsh} 沿候选链退到次新，最多尝试 3 个。解析失败由 provisioner
+ *    回退兜底地板。显式传版本号或标签（`--dsh-version 0.2.0-rc.2` /
+ *    `--dsh-version next`）仍可用，安装命令里依旧绝不出现标签。）
  * 2. **PATH 必须含 node 的 bin 目录。** npm 自身的 shebang 是
  *    `#!/usr/bin/env node`，不加 PATH 直接报 `env: 'node': No such file or directory`。
  * 3. **npm 缓存必须收进本工具的根目录。** 不设 `npm_config_cache` 时 npm
@@ -55,6 +58,15 @@ const INSTALL_TIMEOUT_MS = 900_000;
  */
 const NPM_TIMEOUT_MS = 120_000;
 
+/**
+ * 单个引导最多尝试的 dsh 候选数（首选 + 降级）。
+ *
+ * 每次 npm install 约需 1 分钟，逐个退到很旧版本会让引导退化成分钟级
+ * 长尾。取 3：首选 + 两个降级，足以跨过「镜像暂缺某个版本」这类局部
+ * 缺口，又不会让引导无限退到远古版本。
+ */
+const MAX_DSH_INSTALL_CANDIDATES = 3;
+
 /** dsh 安装结果 */
 export interface DshInstallResult {
   /** 安装的版本 */
@@ -86,6 +98,12 @@ export async function ensureDsh(
   options: {
     /** 目标 dsh 版本，如 `0.1.7-rc.2` */
     version: string;
+    /**
+     * 有序降级候选（首选在前）。省略或为空时退化为只尝试 `version`。
+     * 首选版本装不上（tarball 在镜像上缺失、registry 抖动、装后版本不符）
+     * 时沿序列退到次新版本——见 {@link selectDshCandidates}。
+     */
+    candidates?: readonly string[];
     /** npm registry baseUrl */
     registryUrl: string;
     /** node bin 目录，会加进 PATH */
@@ -100,65 +118,85 @@ export async function ensureDsh(
   const { version, registryUrl, nodeBinDir, signal } = options;
   const installDir = paths.dshDir;
   const dshBin = paths.dshBin;
+  // 降级链：首选在前，最多尝试 {@link MAX_DSH_INSTALL_CANDIDATES} 个；
+  // 显式指定版本时只有一项（尊重用户选择，不做降级）。
+  const candidates = options.candidates && options.candidates.length > 0
+    ? options.candidates.slice(0, MAX_DSH_INSTALL_CANDIDATES)
+    : [version];
 
-  // 1. 检查是否已装。用 `dsh --version` 而非文件存在性——
-  //    半成品安装（node_modules 不完整）会让文件检查误判为可用
-  const existing = await runWithPath(
-    transport,
-    `${quote(dshBin)} --version 2>/dev/null || true`,
-    nodeBinDir,
-    { allowNonZeroExit: true, ...(signal ? { signal } : {}) },
-  );
-  if (existing.stdout.trim() === version) {
-    return { version, dshBin, installDir, reused: true };
-  }
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    // 1. 该候选是否已装且可用。用 `dsh --version` 而非文件存在性——
+    //    半成品安装（node_modules 不完整）会让文件检查误判为可用
+    const existing = await runWithPath(
+      transport,
+      `${quote(dshBin)} --version 2>/dev/null || true`,
+      nodeBinDir,
+      { allowNonZeroExit: true, ...(signal ? { signal } : {}) },
+    );
+    if (existing.stdout.trim() === candidate) {
+      return { version: candidate, dshBin, installDir, reused: true };
+    }
 
-  // 2. 安装。在 DSH_HOME（base）下放一个占位 package.json，让 npm 把依赖装进本目录
-  options.onProgress?.(`安装 dsh ${version}（首次约需 1 分钟）`);
-  const placeholder = JSON.stringify({ name: 'dsh-remote-explorer-install', private: true });
-  // 整段套 flock：npm 写 base 目录是临界区，多人同远端账号并发引导会写竞态
-  const install = lockInstallCommand(paths, [
-    `mkdir -p ${quote(installDir)}`,
-    `cd ${quote(installDir)}`,
-    `printf '%s' ${quote(placeholder)} > package.json`,
-    `npm install --registry=${quote(registryUrl)} --no-audit --no-fund ${quote(`@deepseek-ai/dsh@${version}`)}`,
-  ].join('\n'));
+    // 2. 安装。在 DSH_HOME（base）下放一个占位 package.json，让 npm 把依赖装进本目录。
+    //    先清空 dsh 安装树再装——dsh 是单一安装点（base/node_modules，只含 dsh
+    //    及其依赖树），版本不一致或二进制损坏时，npm 可能因 package.json 已声明
+    //    该依赖而跳过实际重装、留下坏包。删除安装树强制 npm 从干净状态重装。
+    options.onProgress?.(`安装 dsh ${candidate}（首次约需 1 分钟）`);
+    const placeholder = JSON.stringify({ name: 'dsh-remote-explorer-install', private: true });
+    // 整段套 flock：npm 写 base 目录是临界区，多人同远端账号并发引导会写竞态
+    const install = lockInstallCommand(paths, [
+      buildDshCleanCommand(installDir),
+      `mkdir -p ${quote(installDir)}`,
+      `cd ${quote(installDir)}`,
+      `printf '%s' ${quote(placeholder)} > package.json`,
+      `npm install --registry=${quote(registryUrl)} --no-audit --no-fund ${quote(`@deepseek-ai/dsh@${candidate}`)}`,
+    ].join('\n'));
 
-  try {
-    await transport.exec(install, {
-      pathPrefix: nodeBinDir,
-      env: npmEnv(paths),
-      timeoutMs: INSTALL_TIMEOUT_MS + INSTALL_LOCK_WAIT_SECONDS * 1_000,
+    try {
+      await transport.exec(install, {
+        pathPrefix: nodeBinDir,
+        env: npmEnv(paths),
+        timeoutMs: INSTALL_TIMEOUT_MS + INSTALL_LOCK_WAIT_SECONDS * 1_000,
+        ...(signal ? { signal } : {}),
+      });
+    } catch (error) {
+      // 装不上就清掉半成品退到下一个候选：留下半个安装会让后续版本检查
+      // 行为难以预测。只清 dsh 安装树，绝不碰 base 根目录（见 cleanupDshTree）。
+      lastError = error;
+      await cleanupDshTree(transport, paths);
+      continue;
+    }
+
+    // 3. 验证装出来的版本：不符也视为该候选失败，清掉退到下一个候选
+    const verify = await runWithPath(transport, `${quote(dshBin)} --version`, nodeBinDir, {
       ...(signal ? { signal } : {}),
     });
-  } catch (error) {
-    // 安装失败必须清掉目录：留下半个安装会让下次的版本检查行为难以预测。
-    // 清目录不套锁：失败方持锁期间执行，与成功方临界区不重叠
-    await cleanup(transport, installDir);
-    throw new RemoteError(
-      'EXEC_FAILED',
-      `在主机 ${transport.hostAlias} 上安装 dsh ${version} 失败。`
-        + installLockHint(toErrorMessage(error))
-        + '若报错形如 V8 内存分配失败或 SIGTRAP，通常是 Node 运行时在该架构上不稳定，'
-        + '请用 dsh-remote-explorer doctor 检查 Node 稳定性自检结果',
-      { cause: error, hostAlias: transport.hostAlias },
-    );
+    const actual = verify.stdout.trim();
+    if (actual !== candidate) {
+      lastError = new RemoteError(
+        'EXEC_FAILED',
+        `主机 ${transport.hostAlias} 上安装的 dsh 版本不符：期望 ${candidate}，实际 ${actual || '(无输出)'}`,
+        { hostAlias: transport.hostAlias },
+      );
+      await cleanupDshTree(transport, paths);
+      continue;
+    }
+
+    return { version: candidate, dshBin, installDir, reused: false };
   }
 
-  // 3. 验证装出来的版本
-  const verify = await runWithPath(transport, `${quote(dshBin)} --version`, nodeBinDir, {
-    ...(signal ? { signal } : {}),
-  });
-  const actual = verify.stdout.trim();
-  if (actual !== version) {
-    throw new RemoteError(
-      'EXEC_FAILED',
-      `主机 ${transport.hostAlias} 上安装的 dsh 版本不符：期望 ${version}，实际 ${actual || '(无输出)'}`,
-      { hostAlias: transport.hostAlias },
-    );
-  }
-
-  return { version, dshBin, installDir, reused: false };
+  // 所有候选都失败：报最后一个错误，并列出已尝试的候选清单
+  const tried = candidates.join('、');
+  const hint = installLockHint(toErrorMessage(lastError));
+  throw new RemoteError(
+    'EXEC_FAILED',
+    `在主机 ${transport.hostAlias} 上安装 dsh 失败，已尝试候选：${tried}。`
+      + (hint !== undefined ? hint : '')
+      + '若报错形如 V8 内存分配失败或 SIGTRAP，通常是 Node 运行时在该架构上不稳定，'
+      + '请用 dsh-remote-explorer doctor 检查 Node 稳定性自检结果',
+    { cause: lastError, hostAlias: transport.hostAlias },
+  );
 }
 
 // ─── 版本比较（纯函数，默认「最新」策略的判定核心） ────────────────────────
@@ -252,10 +290,11 @@ export function compareSemver(a: SemverParts, b: SemverParts): number {
 /**
  * 取版本列表中 semver 优先级最大的条目（纯函数，无 IO）。
  *
- * 默认 dsh 版本策略的判定核心：「最新」= 已发布版本的最大值，而非任何
- * dist-tag——`latest` 实测滞后于已发布最大值（见文件头第 1 点）。
- * 非法/无法解析的条目直接忽略，不让一个脏值掀翻整个解析；空输入或
- * 无任何合法条目时返回 undefined，由调用方决定兜底。
+ * semver 优先级比较的通用「取最大」原语，与 {@link compareSemver} 同源。
+ * 默认 dsh 版本策略的分层排序见 {@link selectDshCandidates}（它按稳定/rc
+ * 分层后各自降序，不直接调本函数）。非法/无法解析的条目直接忽略，不让一个
+ * 脏值掀翻整个解析；空输入或无任何合法条目时返回 undefined，由调用方决定
+ * 兜底。
  *
  * @param versions - 候选版本列表（通常来自 `npm view ... versions --json`）
  * @returns 最大的版本号；无合法条目时 undefined
@@ -275,11 +314,73 @@ export function maxPublishedVersion(versions: readonly string[]): string | undef
 }
 
 /**
+ * 把版本列表整理成「首选在前」的有序降级候选（纯函数，无 IO）。
+ *
+ * 顺序：所有稳定版按 semver 降序，再接所有 rc 按 semver 降序。
+ * 首项就是 {@link selectDefaultDshVersion} 的首选。`alpha`/`beta` 等非 rc
+ * 预发布一律不进序列（见 {@link selectDefaultDshVersion} 的策略分层）。
+ *
+ * 用途：首选版本装不上时（tarball 在镜像上缺失、registry 抖动、装后版本
+ * 不符），沿序列退到次新版本，避免「最新发布但装不上」直接卡死引导。
+ *
+ * semver 优先级判定复用 {@link parseSemver} / {@link compareSemver}（与
+ * {@link maxPublishedVersion} 同源）；分层过滤（稳定/rc）与排序只在这里
+ * 发生一次。
+ *
+ * @param versions - 候选版本列表（通常来自 `npm view ... versions --json`）
+ * @returns 有序候选序列（首项为首选）；无可用候选时空数组
+ */
+export function selectDshCandidates(versions: readonly string[]): string[] {
+  const parsed: Array<{ raw: string; parts: SemverParts }> = [];
+  for (const candidate of versions) {
+    const parts = parseSemver(candidate);
+    if (parts === undefined) continue;
+    parsed.push({ raw: candidate, parts });
+  }
+
+  // 按层取降序：稳定版一层、rc 一层（alpha/beta 两层都不进）
+  const byTier = (keep: (parts: SemverParts) => boolean): string[] => {
+    const tier = parsed.filter(item => keep(item.parts));
+    tier.sort((a, b) => compareSemver(b.parts, a.parts));
+    return tier.map(item => item.raw);
+  };
+
+  return [
+    ...byTier(parts => parts.prerelease.length === 0),
+    ...byTier(parts => parts.prerelease[0] === 'rc'),
+  ];
+}
+
+/**
+ * dsh 默认版本选择策略：优先稳定版，无稳定版时取最新 rc（纯函数，无 IO）。
+ *
+ * 策略分层（用户拍板）：
+ * 1. 优先取最大的**稳定版**（无 prerelease，如 `0.2.1`）。有稳定版时不看
+ *    任何 rc——即使 rc 的 semver 更高（`0.2.2-rc.1 > 0.2.1`）也不选，因为
+ *    稳定版才是正式发布通道。
+ * 2. 没有稳定版时回退取最大的 **rc**（prerelease 首段为 `rc`，如
+ *    `0.2.1-rc.2`）。dsh 当前 registry 只发布 rc/alpha、尚无稳定版，故
+ *    回退路径是常态而非异常。
+ * 3. `alpha`/`beta` 等非 rc 预发布一律不选——prerelease 首段必须是 `rc`。
+ * 4. 既无稳定版也无 rc 返回 undefined，由调用方决定兜底（provisioner 回退
+ *    兜底地板，见 DEFAULT_DSH_VERSION）。
+ *
+ * 实现为 {@link selectDshCandidates} 的首项，保证「首选」与「降级序列」
+ * 同源、不会各自演化出分歧。
+ *
+ * @param versions - 候选版本列表（通常来自 `npm view ... versions --json`）
+ * @returns 最大稳定版（无稳定版时为最新 rc）；无可用候选时 undefined
+ */
+export function selectDefaultDshVersion(versions: readonly string[]): string | undefined {
+  return selectDshCandidates(versions)[0];
+}
+
+/**
  * 查询 registry 上某个 dist-tag 对应的具体版本。
  *
  * 供用户显式传标签（`--dsh-version next` 等）的路径使用——解析结果会被
  * 显式传下去，安装命令里绝不出现 dist-tag（见文件头第 1 点）。未显式
- * 指定版本时的默认路径不走标签，见 {@link resolveLatestDshVersion}。
+ * 指定版本时的默认路径不走标签，见 {@link resolveDshCandidates}。
  *
  * @param ctx - 远端执行上下文
  * @param options - 查询选项
@@ -327,20 +428,20 @@ export async function resolveDshVersion(
 }
 
 /**
- * 解析 registry 上「已发布版本的最大值」作为默认 dsh 版本。
+ * 解析 registry 上 dsh 的有序降级候选（首选在前）。
  *
  * dist-tag `latest` 实测滞后（见文件头第 1 点），「最新」不能取任何
- * 标签——必须拉全量版本列表自行比较（{@link maxPublishedVersion}）。
+ * 标签——必须拉全量版本列表，经 {@link selectDshCandidates} 分层排序。
  * 执行形态与 {@link resolveDshVersion} 同款：远端 `npm view` + npmEnv
- * 缓存隔离 + `allowNonZeroExit` + 120 秒超时。本函数只抛错，解析失败
- * 后的兜底策略（回退地板、不中断引导）由 provisioner 决定。
+ * 缓存隔离 + `allowNonZeroExit` + 120 秒超时。本函数只抛错，解析失败后的
+ * 兜底策略（回退地板、不中断引导）由 provisioner 决定。
  *
  * @param ctx - 远端执行上下文
  * @param options - 解析选项
- * @returns 已发布版本中的最大版本号
- * @throws RemoteError('EXEC_FAILED') 输出无法解析成版本列表、列表为空或无合法版本
+ * @returns 有序候选序列（首项为首选；供安装失败时沿序列降级）
+ * @throws RemoteError('EXEC_FAILED') 输出无法解析成版本列表、列表为空、或既无稳定版也无 rc
  */
-export async function resolveLatestDshVersion(
+export async function resolveDshCandidates(
   ctx: RemoteContext,
   options: {
     /** npm registry baseUrl */
@@ -350,7 +451,7 @@ export async function resolveLatestDshVersion(
     /** 取消信号 */
     signal?: AbortSignal;
   },
-): Promise<string> {
+): Promise<string[]> {
   const { transport, paths } = ctx;
   const { registryUrl, nodeBinDir, signal } = options;
   const result = await runWithPath(
@@ -366,19 +467,19 @@ export async function resolveLatestDshVersion(
   );
 
   const versions = parseVersionListJson(result.stdout);
-  const latest = versions === undefined ? undefined : maxPublishedVersion(versions);
-  if (versions === undefined || latest === undefined) {
+  const candidates = versions === undefined ? [] : selectDshCandidates(versions);
+  if (versions === undefined || candidates.length === 0) {
     throw new RemoteError(
       'EXEC_FAILED',
-      `远端默认 dsh 版本解析失败：无法从 ${registryUrl} 解析 @deepseek-ai/dsh 的已发布版本列表`
-        + '（输出不是合法的 JSON 版本数组、列表为空或无合法版本号）',
+      `远端默认 dsh 版本解析失败：无法从 ${registryUrl} 解析 @deepseek-ai/dsh 的稳定版/rc 版本列表`
+        + '（输出不是合法的 JSON 版本数组、列表为空、或既无稳定版也无 rc）',
       { hostAlias: transport.hostAlias },
     );
   }
-  log.info(`dsh 版本解析：最新已发布 ${latest}（候选 ${versions.length} 个）`, {
+  log.info(`dsh 版本解析：首选 ${candidates[0]}（候选 ${versions.length} 个）`, {
     hostAlias: transport.hostAlias,
   });
-  return latest;
+  return candidates;
 }
 
 /**
@@ -447,13 +548,64 @@ function parseVersionListJson(stdout: string): string[] | undefined {
 }
 
 /**
- * 删除远端目录，失败不抛错。
+ * 校验并返回 dsh 依赖树根目录（`<installDir>/node_modules`）。
+ *
+ * installDir 必须是 base 的绝对 POSIX 路径（createRemotePaths 的契约）。
+ * 空串或相对路径会让随后的 `rm -rf` 落到不可预期的位置——宁可抛错也不冒
+ * 误删风险。目录名固定追加 `/node_modules`，从构造上保证清理目标永远
+ * 是 base 的子树、绝不等于 base 本身（历史事故就是误把 base 当清理目标）。
+ *
+ * @param installDir - dsh 安装目录（= base）
+ * @returns 依赖树根目录绝对路径
+ * @throws Error installDir 为空或非绝对路径
+ */
+function dshNodeModulesOf(installDir: string): string {
+  if (installDir.length === 0 || !installDir.startsWith('/')) {
+    throw new Error(`dsh 安装目录必须是绝对路径，实际为：${installDir}`);
+  }
+  return `${installDir}/node_modules`;
+}
+
+/**
+ * 构造「清空 dsh 安装树」的远端命令（`rm -rf <base>/node_modules <base>/package-lock.json`）。
+ *
+ * 供「安装前清空」与「失败后清理」两处共用，保证清理范围一致（纯函数，导出
+ * 供单测锁定路径形状约束）。installDir 非绝对路径时抛错——宁可不装也不冒
+ * 误删风险。
+ *
+ * @param installDir - dsh 安装目录（= base）
+ * @returns 可直接并入 flock 临界区的清理命令
+ * @throws Error installDir 为空或非绝对路径
+ */
+export function buildDshCleanCommand(installDir: string): string {
+  const nodeModules = dshNodeModulesOf(installDir);
+  return `rm -rf ${quote(nodeModules)} ${quote(`${installDir}/package-lock.json`)}`;
+}
+
+/**
+ * 清理失败的 dsh 安装树（只删 `base/node_modules` 与 lock 文件，绝不删 base 根）。
+ *
+ * dsh 装在 `base/node_modules` 下，而 base 本身是 DSH_HOME——还承载 Node
+ * 版本目录、profiles、sessions、.agents、credentials.yaml。历史上这里的清理
+ * 曾误写 `cleanup(transport, installDir)`（`installDir === base`），npm install
+ * 一旦失败就会把整台远端本工具的状态清空。现经 {@link dshNodeModulesOf} 断言
+ * 路径形状；异常时宁可不删也不误删——清理是尽力而为，不掩盖原始安装错误。
  *
  * @param transport - 已连接的传输
- * @param dir - 待删目录绝对路径
+ * @param paths - 远端路径集合
  */
-async function cleanup(transport: RemoteTransport, dir: string): Promise<void> {
+async function cleanupDshTree(transport: RemoteTransport, paths: RemotePaths): Promise<void> {
+  let command: string;
   try {
-    await transport.exec(`rm -rf ${quote(dir)}`, { allowNonZeroExit: true });
+    command = buildDshCleanCommand(paths.dshDir);
+  } catch (error) {
+    log.warn('dsh 安装树路径形状异常，跳过清理（绝不删除 base 根目录）', {
+      dshNodeModules: `${paths.dshDir}/node_modules`,
+      error: toErrorMessage(error),
+    });
+    return;
+  }
+  try {
+    await transport.exec(command, { allowNonZeroExit: true });
   } catch { /* 清理失败只留下无用目录，不影响错误上报 */ }
 }

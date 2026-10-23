@@ -154,7 +154,7 @@ pnpm exec tsx src/cli/bin.ts provision <别名> --cwd //home/user
 |---|---|
 | `--cwd <路径>` | 远端工作目录（参与会话 id 计算） |
 | `--node-version <版本>` | 目标 Node 版本（默认解析 Node 24 最新稳定版） |
-| `--dsh-version <版本>` | 目标 dsh 版本或 dist-tag（默认解析最新已发布版本，失败回退兜底） |
+| `--dsh-version <版本>` | 目标 dsh 版本或 dist-tag（默认最大稳定版，无稳定版取最新 rc，alpha 不选；首选装不上时退到次新，最多 3 个；失败回退兜底） |
 | `--refresh-mirrors` | 强制重测镜像延迟 |
 | `--ssh-config <路径>` | 使用指定的 ssh config 文件 |
 | `--private-key <路径>` | 私钥路径，优先于 config 的 IdentityFile（见[认证与主机指定](#认证与主机指定)） |
@@ -162,13 +162,14 @@ pnpm exec tsx src/cli/bin.ts provision <别名> --cwd //home/user
 
 **为什么单独成命令：** 引导是最慢也最容易失败的一步（全新安装约 75 秒）。独立出来便于单独重试与诊断。
 
-**版本隔离：** 每个 Node 和 dsh 版本装在各自目录（如 `~/.dsh-remote-explorer/btsd321/node/v24.21.0/`、`~/.dsh-remote-explorer/btsd321/versions/dsh-0.1.6-alpha.2/`）。升级从不原地覆盖——这避免了"运行中进程占着文件，写入报 Text file busy"的故障。
+**版本管理：** Node 按版本隔离装在 `~/.dsh-remote-explorer/btsd321/node/v24.21.0/`，多版本并存，升级从不原地覆盖——这避免了"运行中进程占着文件，写入报 Text file busy"的故障。dsh 相反：装在 `~/.dsh-remote-explorer/btsd321/node_modules/` 的单一安装点，版本不一致就原地升级（npm install 新版本覆盖）。
 
 **机器级共享 vs 会话私有：** 远端根目录下的资源分两类——
 
 | 类别 | 位置 | 生命周期 |
 |---|---|---|
-| Node / dsh 安装 | `node/<版本>/`、`versions/dsh-<版本>/` | 机器级，多版本并存 |
+| Node 安装 | `node/<版本>/` | 机器级，多版本并存 |
+| dsh 安装 | `node_modules/`（`DSH_HOME` 根下，单一安装点，原地升级） | 机器级，所有会话共享 |
 | 插件仓库 | `profiles/web/` | 机器级，所有会话经 symlink 共享 |
 | **agent 能力（技能）** | `.agents/` | **机器级，所有会话共享** |
 | 会话实例状态 | `sessions/<会话 id>/` | 每个 (主机, 远端目录) 一份 |
@@ -201,7 +202,7 @@ DEEPSEEK_API_KEY=sk-xxx pnpm exec tsx src/cli/bin.ts connect <别名> --cwd //ho
 | `--force-restart` | 即便远端已有可用会话也重新启动 |
 | `--keep-remote` | Ctrl-C 断开时保留远端 dsh（默认连它一起停止） |
 | `--node-version <版本>` | 目标 Node 版本（默认解析 Node 24 最新稳定版） |
-| `--dsh-version <版本>` | 目标 dsh 版本或 dist-tag（默认解析最新已发布版本，失败回退兜底） |
+| `--dsh-version <版本>` | 目标 dsh 版本或 dist-tag（默认最大稳定版，无稳定版取最新 rc，alpha 不选；首选装不上时退到次新，最多 3 个；失败回退兜底） |
 | `--refresh-mirrors` | 强制重测镜像延迟 |
 | `--ssh-config <路径>` | 使用指定的 ssh config 文件 |
 | `--private-key <路径>` | 私钥路径，优先于 config 的 IdentityFile（见[认证与主机指定](#认证与主机指定)） |
@@ -590,7 +591,7 @@ pnpm exec tsx scripts/dev-plugin.ts --sync   # 只同步产物进沙箱
     keepRemoteOnDispose: false # 宿主退出时是否保留远端 dsh
     localPort: 0              # 本机端口（0 = 自动分配）
     nodeVersion: ""           # 空 = provisioner 默认
-    dshVersion: ""            # 空 = 默认（解析最新已发布版本）
+    dshVersion: ""            # 空 = 默认（最大稳定版，无稳定版取最新 rc）
     forceRestart: false
     refreshMirrors: false
     panel: true               # false = 不注册面板路由，只留命令与工具

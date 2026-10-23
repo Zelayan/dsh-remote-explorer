@@ -315,10 +315,12 @@ function checkInstalledRuntimes(probe: ProbeResult, findings: Finding[]): void {
   });
   findings.push({
     item: '已装 dsh',
-    verdict: probe.managedDsh.length > 0 ? 'ok' : 'warn',
+    verdict: probe.managedDsh.length > 0 ? 'ok' : probe.dshPresentButUnusable ? 'warn' : 'warn',
     detail: probe.managedDsh.length > 0
       ? probe.managedDsh.map(dsh => dsh.version).join('、')
-      : '尚未安装（首次 connect 时会自动装）',
+      : probe.dshPresentButUnusable
+        ? '已安装但不可运行（`dsh --version` 失败），引导会删除重装'
+        : '尚未安装（首次 connect 时会自动装）',
   });
 }
 
