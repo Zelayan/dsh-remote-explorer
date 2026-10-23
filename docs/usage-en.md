@@ -153,7 +153,7 @@ pnpm exec tsx src/cli/bin.ts provision <alias> --cwd //home/user
 | Option | Description |
 |---|---|
 | `--cwd <path>` | Remote working directory (participates in session id computation) |
-| `--node-version <ver>` | Target Node version (default: v24 series) |
+| `--node-version <ver>` | Target Node version (default: resolve the latest Node 24 stable release) |
 | `--dsh-version <ver>` | Target dsh version or dist-tag (default: resolve the latest published version, with a fallback on failure) |
 | `--refresh-mirrors` | Force re-benchmark mirror latency |
 | `--ssh-config <path>` | Use a custom ssh config file |
@@ -200,7 +200,7 @@ DEEPSEEK_API_KEY=sk-xxx pnpm exec tsx src/cli/bin.ts connect <alias> --cwd //hom
 | `--no-open` | Do not auto-open the browser |
 | `--force-restart` | Restart remote dsh even if an existing session is available |
 | `--keep-remote` | On Ctrl-C, keep remote dsh running for reuse (default: stop it) |
-| `--node-version <ver>` | Target Node version (default: v24 series) |
+| `--node-version <ver>` | Target Node version (default: resolve the latest Node 24 stable release) |
 | `--dsh-version <ver>` | Target dsh version or dist-tag (default: resolve the latest published version, with a fallback on failure) |
 | `--refresh-mirrors` | Force re-benchmark mirror latency |
 | `--ssh-config <path>` | Use a custom ssh config file |

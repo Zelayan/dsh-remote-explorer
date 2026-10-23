@@ -153,7 +153,7 @@ pnpm exec tsx src/cli/bin.ts provision <别名> --cwd //home/user
 | 参数 | 说明 |
 |---|---|
 | `--cwd <路径>` | 远端工作目录（参与会话 id 计算） |
-| `--node-version <版本>` | 目标 Node 版本（默认 v24 系） |
+| `--node-version <版本>` | 目标 Node 版本（默认解析 Node 24 最新稳定版） |
 | `--dsh-version <版本>` | 目标 dsh 版本或 dist-tag（默认解析最新已发布版本，失败回退兜底） |
 | `--refresh-mirrors` | 强制重测镜像延迟 |
 | `--ssh-config <路径>` | 使用指定的 ssh config 文件 |
@@ -200,7 +200,7 @@ DEEPSEEK_API_KEY=sk-xxx pnpm exec tsx src/cli/bin.ts connect <别名> --cwd //ho
 | `--no-open` | 不自动打开浏览器 |
 | `--force-restart` | 即便远端已有可用会话也重新启动 |
 | `--keep-remote` | Ctrl-C 断开时保留远端 dsh（默认连它一起停止） |
-| `--node-version <版本>` | 目标 Node 版本（默认 v24 系） |
+| `--node-version <版本>` | 目标 Node 版本（默认解析 Node 24 最新稳定版） |
 | `--dsh-version <版本>` | 目标 dsh 版本或 dist-tag（默认解析最新已发布版本，失败回退兜底） |
 | `--refresh-mirrors` | 强制重测镜像延迟 |
 | `--ssh-config <路径>` | 使用指定的 ssh config 文件 |
