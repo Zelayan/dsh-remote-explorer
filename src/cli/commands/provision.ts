@@ -128,12 +128,12 @@ export async function runProvision(options: ProvisionCommandOptions): Promise<nu
  *
  * Node 不再 pin 具体版本号：默认在引导期解析 Node 24 LTS 的最新稳定版
  * （发行站 index.json），解析失败回退兜底版本（内部维护，不在 help 里展示）。
- * dsh 同样不 pin 具体版本：默认解析 registry 已发布版本的最大值
- * （dist-tag `latest` 实测滞后），解析失败由 provisioner 回退兜底地板。
+ * dsh 同样不 pin 具体版本：默认取最大稳定版，无稳定版才取最新 rc（dist-tag
+ * `latest` 实测滞后），解析失败由 provisioner 回退兜底地板。
  * 返回的两个字段都是给 help 文本的显示标记，不是版本号。
  *
  * @returns 默认 Node 版本与 dsh 默认策略说明
  */
 export function defaultVersions(): { node: string; dsh: string } {
-  return { node: 'Node 24 最新稳定版', dsh: '解析最新已发布版本' };
+  return { node: 'Node 24 最新稳定版', dsh: '最大稳定版（无则最新 rc）' };
 }

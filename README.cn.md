@@ -231,7 +231,7 @@ flowchart TD
 | [src/provision/mirror-selector.ts](src/provision/mirror-selector.ts) | 在远端实测镜像延迟并自适应选取 |
 | [src/provision/remote-paths.ts](src/provision/remote-paths.ts) | 远端路径规则的唯一真源 |
 | [src/provision/node-installer.ts](src/provision/node-installer.ts) | 装 Node，版本隔离，装完自检 |
-| [src/provision/dsh-installer.ts](src/provision/dsh-installer.ts) | 装 dsh：默认解析已发布版本最大值（dist-tag 实测滞后），解析失败回退兜底地板 |
+| [src/provision/dsh-installer.ts](src/provision/dsh-installer.ts) | 装 dsh：单一安装点原地升级，版本不符或损坏时清空安装树重装；默认最大稳定版（无稳定版取最新 rc，alpha 不选），首选装不上时沿候选链退到次新（最多 3 个；dist-tag 实测滞后），解析失败回退兜底地板 |
 | [src/provision/pnpm-installer.ts](src/provision/pnpm-installer.ts) | 装 pnpm（钉 11.7.0，主版本 10/11/12 兼容复用）；版本探针读落盘 package.json |
 | [src/provision/pnpm-profile.ts](src/provision/pnpm-profile.ts) | host profile 的 pnpm 11 前提幂等补齐（allowBuilds / minimumReleaseAge） |
 | [src/provision/profile-writer.ts](src/provision/profile-writer.ts) | 每会话独立 `DSH_HOME` 与 profile、patch 生成 |

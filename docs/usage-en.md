@@ -154,7 +154,7 @@ pnpm exec tsx src/cli/bin.ts provision <alias> --cwd //home/user
 |---|---|
 | `--cwd <path>` | Remote working directory (participates in session id computation) |
 | `--node-version <ver>` | Target Node version (default: resolve the latest Node 24 stable release) |
-| `--dsh-version <ver>` | Target dsh version or dist-tag (default: resolve the latest published version, with a fallback on failure) |
+| `--dsh-version <ver>` | Target dsh version or dist-tag (default: highest stable release, falling back to the latest rc when no stable exists; alpha excluded; if the top pick cannot be installed, walks down the candidate chain to the next newest, up to 3 attempts; fallback on failure) |
 | `--refresh-mirrors` | Force re-benchmark mirror latency |
 | `--ssh-config <path>` | Use a custom ssh config file |
 | `--private-key <path>` | Private key path, wins over the config's IdentityFile (see [Authentication](#authentication-and-host-targeting)) |
@@ -162,13 +162,14 @@ pnpm exec tsx src/cli/bin.ts provision <alias> --cwd //home/user
 
 **Why provision separately:** Provisioning is the slowest and most failure-prone step (~75 seconds for a fresh install). Separating it allows independent retry and diagnosis.
 
-**Version isolation:** Each Node and dsh version is installed in its own directory (e.g. `~/.dsh-remote-explorer/btsd321/node/v24.21.0/`, `~/.dsh-remote-explorer/btsd321/versions/dsh-0.1.6-alpha.2/`). Upgrading never overwrites in place — this avoids "Text file busy" errors when a running process holds files open.
+**Version management:** Node is version-isolated under `~/.dsh-remote-explorer/btsd321/node/v24.21.0/`, with multiple versions coexisting — upgrading never overwrites in place, which avoids "Text file busy" errors when a running process holds files open. dsh is the opposite: a single install point at `~/.dsh-remote-explorer/btsd321/node_modules/`, upgraded in place when the version differs (npm installs the new version over the old).
 
 **Machine-level vs session-private:** Resources under the remote root fall into two classes:
 
 | Class | Location | Lifetime |
 |---|---|---|
-| Node / dsh installations | `node/<version>/`, `versions/dsh-<version>/` | Machine-level, versions coexist |
+| Node installation | `node/<version>/` | Machine-level, versions coexist |
+| dsh installation | `node_modules/` (under the `DSH_HOME` root; single install point, upgraded in place) | Machine-level, shared by every session |
 | Plugin store | `profiles/web/` | Machine-level, shared by every session via symlink |
 | **Agent capabilities (skills)** | `.agents/` | **Machine-level, shared by every session** |
 | Session instance state | `sessions/<session id>/` | One per (host, remote directory) |
@@ -201,7 +202,7 @@ DEEPSEEK_API_KEY=sk-xxx pnpm exec tsx src/cli/bin.ts connect <alias> --cwd //hom
 | `--force-restart` | Restart remote dsh even if an existing session is available |
 | `--keep-remote` | On Ctrl-C, keep remote dsh running for reuse (default: stop it) |
 | `--node-version <ver>` | Target Node version (default: resolve the latest Node 24 stable release) |
-| `--dsh-version <ver>` | Target dsh version or dist-tag (default: resolve the latest published version, with a fallback on failure) |
+| `--dsh-version <ver>` | Target dsh version or dist-tag (default: highest stable release, falling back to the latest rc when no stable exists; alpha excluded; if the top pick cannot be installed, walks down the candidate chain to the next newest, up to 3 attempts; fallback on failure) |
 | `--refresh-mirrors` | Force re-benchmark mirror latency |
 | `--ssh-config <path>` | Use a custom ssh config file |
 | `--private-key <path>` | Private key path, wins over the config's IdentityFile (see [Authentication](#authentication-and-host-targeting)) |
@@ -591,7 +592,7 @@ Override by entry id in the profile's `cordis.patch.yml`:
     keepRemoteOnDispose: false # keep the remote dsh when the host exits
     localPort: 0              # local port (0 = auto-assign)
     nodeVersion: ""           # empty = provisioner default
-    dshVersion: ""            # empty = default (resolves the latest published version)
+    dshVersion: ""            # empty = default (highest stable, latest rc if none)
     forceRestart: false
     refreshMirrors: false
     panel: true               # false = skip panel routes, keep command and tools

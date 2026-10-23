@@ -15,7 +15,7 @@ import { assertDiskSpace, probeRemote, type ProbeResult } from './probe.js';
 import { selectMirror } from './mirror-selector.js';
 import { DEFAULT_NODE_VERSION, ensureNode, type NodeInstallResult } from './node-installer.js';
 import { DEFAULT_NODE_MAJOR, fetchLatestNodeStableVersion } from './node-version-fetch.js';
-import { ensureDsh, resolveDshVersion, resolveLatestDshVersion, type DshInstallResult } from './dsh-installer.js';
+import { ensureDsh, resolveDshVersion, resolveDshCandidates, type DshInstallResult } from './dsh-installer.js';
 import { ensurePnpm } from './pnpm-installer.js';
 import { ensurePnpmProfileSettings } from './pnpm-profile.js';
 import { prepareSessionProfile, type PatchEntry, type ProfileResult } from './profile-writer.js';
@@ -78,11 +78,11 @@ export interface ProvisionResult {
 /**
  * dsh 默认版本解析失败时的离线兜底（回退地板）。
  *
- * 语义已变：不再是日常默认，而是「解析不出最新已发布版本时也能把引导
- * 跑完」的保底值。未显式指定版本时默认解析 registry 已发布版本的最大值
- * （dist-tag `latest` 实测滞后，见 dsh-installer 文件头与 lessons 6c），
- * 仅在解析失败（离线、registry 抖动）时落到这里。取值需随已发布最大值
- * 的前进手动抬高，保证兜底不至于过旧。
+ * 语义已变：不再是日常默认，而是「解析不出最大稳定版/最新 rc 时也能把
+ * 引导跑完」的保底值。未显式指定版本时默认解析 registry 的最大稳定版、
+ * 无稳定版时取最新 rc（dist-tag `latest` 实测滞后，见 dsh-installer 文件头
+ * 与 lessons 6c），仅在解析失败（离线、registry 抖动）时落到这里。取值需
+ * 随目标版本（当前应为已发布的最新 rc）的前进手动抬高，保证兜底不至于过旧。
  */
 export const DEFAULT_DSH_VERSION = '0.2.0-rc.2';
 
@@ -193,10 +193,12 @@ export async function provision(
   if (npmSelection.fromCache) options.onStageSkip?.(`命中缓存：${npmSelection.selected.name}`);
   else options.onStageDone?.(`选中 ${npmSelection.selected.name}`);
 
-  // 5. 确定 dsh 版本：显式传值时 tag 先解析成具体版本（行为不变）；
-  //    缺省时解析 registry 已发布版本的最大值（dist-tag latest 实测
-  //    滞后，见 dsh-installer 文件头），解析失败不中断——回退兜底继续
+  // 5. 确定 dsh 版本与降级候选：显式传值时 tag 先解析成具体版本（行为不变）；
+  //    缺省时解析 registry 的最大稳定版（无稳定版才取最新 rc，alpha 一律不选；
+  //    dist-tag latest 实测滞后，见 dsh-installer 文件头），解析失败不中断
+  //    ——回退兜底继续。首选版本装不上时沿候选序列退到次新（见 ensureDsh）。
   let dshVersion: string;
+  let dshCandidates: string[];
   if (options.dshVersion !== undefined) {
     const requested = options.dshVersion;
     dshVersion = requested;
@@ -210,21 +212,25 @@ export async function provision(
       });
       options.onStageDone?.(`${requested} → ${dshVersion}`);
     }
+    // 显式指定版本：只尝试该版本，不做降级（尊重用户选择）
+    dshCandidates = [dshVersion];
   } else {
-    options.onStageStart?.('解析 dsh 最新版本');
+    options.onStageStart?.('解析 dsh 默认版本（稳定版优先）');
     try {
-      dshVersion = await resolveLatestDshVersion(ctx, {
+      dshCandidates = await resolveDshCandidates(ctx, {
         registryUrl: npmSelection.selected.baseUrl,
         nodeBinDir: node.binDir,
         ...(signal ? { signal } : {}),
       });
-      options.onStageDone?.(`最新已发布 ${dshVersion}`);
+      dshVersion = dshCandidates[0]!;
+      options.onStageDone?.(`首选 ${dshVersion}`);
     } catch (error) {
       // 用户主动取消不是「解析失败」，照常上抛
       if (signal?.aborted) throw error;
       // 解析失败不中断引导：离线/registry 抖动时用兜底地板继续跑完，
       // 远端 npm install 命中缓存的可能性得以保留
       dshVersion = DEFAULT_DSH_VERSION;
+      dshCandidates = [DEFAULT_DSH_VERSION];
       log.warn(`远端默认 dsh 版本解析失败，回退兜底 ${DEFAULT_DSH_VERSION}`, {
         hostAlias: transport.hostAlias,
         error: toErrorMessage(error),
@@ -237,6 +243,7 @@ export async function provision(
   options.onStageStart?.(`准备 dsh ${dshVersion}`);
   const dsh = await ensureDsh(ctx, {
     version: dshVersion,
+    candidates: dshCandidates,
     registryUrl: npmSelection.selected.baseUrl,
     nodeBinDir: node.binDir,
     ...(signal ? { signal } : {}),
